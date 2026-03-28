@@ -1,0 +1,68 @@
+name: Build Release
+
+# Triggers when a version tag is pushed (e.g., v0.7.0, v1.0.0-beta.1)
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    name: Build and Upload Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          tools: composer:v2
+          coverage: none
+
+      - name: Install production dependencies
+        run: composer install --no-dev --optimize-autoloader --no-interaction
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Create plugin directory structure
+        run: |
+          mkdir -p build/d5-design-system-helper
+
+          # Copy required files and directories
+          cp d5-design-system-helper.php build/d5-design-system-helper/
+          cp uninstall.php build/d5-design-system-helper/
+          cp composer.json build/d5-design-system-helper/
+          cp composer.lock build/d5-design-system-helper/
+
+          # Copy directories
+          cp -r assets build/d5-design-system-helper/
+          cp -r includes build/d5-design-system-helper/
+          cp -r vendor build/d5-design-system-helper/
+
+          # Copy documentation (optional, but helpful)
+          [ -f README.md ] && cp README.md build/d5-design-system-helper/ || true
+          [ -f CHANGELOG.md ] && cp CHANGELOG.md build/d5-design-system-helper/ || true
+          [ -f LICENSE ] && cp LICENSE build/d5-design-system-helper/ || true
+
+      - name: Create release zip
+        working-directory: build
+        run: |
+          zip -r ../d5-design-system-helper-${{ steps.version.outputs.VERSION }}.zip d5-design-system-helper \
+            -x "*.git*" \
+            -x "*.DS_Store" \
+            -x "*/.DS_Store" \
+            -x "*.idea*" \
+            -x "*__MACOSX*"
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: d5-design-system-helper-${{ steps.version.outputs.VERSION }}.zip
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

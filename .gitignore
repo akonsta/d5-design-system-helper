@@ -1,0 +1,54 @@
+# Composer dependencies (included in release zip, not in repo)
+vendor/
+
+# Release zips
+*.zip
+
+# Composer binary
+composer.phar
+
+# PHPUnit artefacts
+.phpunit.result.cache
+
+# Local dev, design notes, scratch — all under archive/
+/archive/
+/archived-releases/
+/output/
+
+# Session context and working notes (local only — not part of the public repo)
+/context/
+
+# Internal planning, marketing, security tests, dev scripts — not for public repo
+/internal-resources/
+
+# Design notes and internal planning documents
+/design-notes/
+/design-tokens/
+
+# Dev/test scripts and scratch files
+/smoke-test-content-scanner.php
+/json-analysis/
+/debug-archive/
+/tabulator-test.html
+/manage-tables-doc.js
+
+# Claude Code local settings, ignore rules, and worktree artifacts
+.claude/
+.claudeignore
+claude-*/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# JetBrains IDE
+.idea/
+*.iml
+
+# Backup files
+*.bak
+*.orig
+
+# WordPress debug log
+wp-debug.log

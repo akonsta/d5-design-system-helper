@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Playwright
+playwright-report/
+test-results/
+.auth.json
+
+# Screenshots (keep structure, ignore generated files)
+screenshots/*
+!screenshots/.gitkeep
+
+# OS files
+.DS_Store
