@@ -5,7 +5,7 @@
  * Author:       Andrew Konstantaras and Claude Code
  * Author URI:   https://github.com/akonsta
  * Description:  Manage, export, import, and audit your entire Divi 5 design system — Global Variables (colors, numbers, fonts, images, text, links), Element Presets, Option Group Presets, Layouts, Pages, Theme Customizer settings, and Builder Templates. Requires Divi 5.0+, WordPress 6.2+, and PHP 8.1+. Not affiliated with or endorsed by Elegant Themes.
- * Version:      0.1.1
+ * Version:      0.1.0
  * Requires at least: 6.2
  * Requires PHP: 8.1
  * License:      GPL-2.0-or-later
@@ -170,7 +170,7 @@ if ( ! defined( 'D5DSH_URL' ) ) {
 
 /** Plugin version string. */
 if ( ! defined( 'D5DSH_VERSION' ) ) {
-	define( 'D5DSH_VERSION', '0.1.1' );
+	define( 'D5DSH_VERSION', '0.1.0' );
 }
 
 /**
