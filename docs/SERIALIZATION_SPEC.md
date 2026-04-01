@@ -2031,3 +2031,7 @@ dtcg-meta               = "{" ws
 | Color aliases | Stored as `$variable(...)$` token | N/A | Resolved to concrete hex on export |
 | Images / links | Yes (in `global_variables`) | Yes (in `et_divi_global_variables`) | Omitted (no DTCG equivalent) |
 | Plugin metadata | No | `_meta` block | `_meta` block + `$schema` + `dtcg_schema` version |
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

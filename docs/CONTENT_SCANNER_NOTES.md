@@ -90,3 +90,7 @@ The `ContentScanner` class is already parameterisable — post types are a const
 - **No origin filtering is by design** — adding `post_author` or namespace filtering would produce false negatives. If a third-party module correctly uses the DSO API, it should be reported.
 - **Scope documented in class docblock** — `ContentScanner.php` has an explicit limitations section listing what works and what does not, so users are not surprised when CPT content is absent.
 - **`et_template` canvas expansion** — Theme Builder templates consist of Header, Body, and Footer canvases stored as child posts. The scanner expands these as sub-rows of the parent template rather than listing them independently, preserving the logical grouping.
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

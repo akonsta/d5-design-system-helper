@@ -394,3 +394,7 @@ these types. They represent areas for future hardening:
 **7. Version History of This Document**
 
 See version table at the top of this file.
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

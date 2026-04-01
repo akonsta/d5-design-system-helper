@@ -105,3 +105,7 @@ Broader methodology references covering design token evolution, structural appro
 | [SERIALIZATION_SPEC.md](SERIALIZATION_SPEC.md) | Divi 5 serialization format with formal ABNF grammar |
 | [DIVI5_SYSTEM_VARIABLES.md](DIVI5_SYSTEM_VARIABLES.md) | All built-in system variable IDs, storage paths, and editability |
 | [Standard Name Library](standard-name-library/) | DTCG-aligned naming convention system for Divi 5 variables |
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

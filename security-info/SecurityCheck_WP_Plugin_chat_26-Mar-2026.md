@@ -204,3 +204,7 @@ HTML, JavaScript, or CSS.
                                                                   protected data.       and validate
                                                                                         arguments.
   ----------------------------------------------------------------------------------------------------------
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

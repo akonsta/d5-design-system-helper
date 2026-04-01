@@ -118,3 +118,7 @@ Content items referencing an unusually large number of distinct variables (propo
 
 **`variable_type_mismatch` (proposed A8)**
 Variables whose values do not match the pattern expected for their type (e.g. a "spacing" variable with no CSS unit). Deferred: requires per-type validation rules and produces high noise on sites with informal naming. Revisit when naming convention enforcement is more mature.
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

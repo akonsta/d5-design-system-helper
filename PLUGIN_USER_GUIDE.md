@@ -1214,3 +1214,7 @@ All settings configured in the wizard are available at any time via the ⚙ Sett
 ---
 
 *D5 Design System Helper is an independent plugin and is not affiliated with, endorsed by, or supported by Elegant Themes.*
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

@@ -416,3 +416,7 @@ live WordPress instance. A detailed test plan has been provided.
 
   Node.js                             v22.x (for document generation)
   -----------------------------------------------------------------------
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

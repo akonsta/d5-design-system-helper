@@ -2,6 +2,7 @@
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.1.2 | 2026-04-01 | Added security documentation section; repo links added to all documents |
 | 0.1.0 | 2026-03-27 | Initial public release |
 
 This index lists all documentation included in this repository.
@@ -12,10 +13,10 @@ This index lists all documentation included in this repository.
 
 | Title | Filename | Type | Version |
 |-------|----------|------|---------|
-| D5 Design System Helper | README.md | Overview | 0.1.0 |
-| Changelog | CHANGELOG.md | Release notes | 0.1.0 |
-| Installation Guide | INSTALLATION\_GUIDE.md | Guide | 0.1.0 |
-| User Guide | PLUGIN\_USER\_GUIDE.md | Guide | 0.1.0 |
+| D5 Design System Helper | README.md | Overview | 0.1.2 |
+| Changelog | CHANGELOG.md | Release notes | 0.1.2 |
+| Installation Guide | INSTALLATION\_GUIDE.md | Guide | 0.1.2 |
+| User Guide | PLUGIN\_USER\_GUIDE.md | Guide | 0.1.2 |
 | Roadmap | ROADMAP.md | Planning | 0.1.0 |
 | Contributing | CONTRIBUTING.md | Community | 0.1.0 |
 | Code of Conduct | CODE\_OF\_CONDUCT.md | Community | 0.1.0 |
@@ -194,3 +195,54 @@ The catalogue of purpose-based tokens that reference primitives. Brand colors (`
 The catalogue of component-scoped tokens that reference semantic tokens. Covers the most common Divi module types: buttons (primary, secondary, ghost variants with hover/active/disabled states), cards, inputs, navigation, headings, and more. Component tokens give you precise control over individual elements while keeping them connected to the design system — changing `color-primary` still cascades through to `button-background-primary`. Tagged by coverage level.
 
 </details>
+
+---
+
+## Security Documentation (`security-info/`)
+
+| Title | Filename | Type | Version |
+|-------|----------|------|---------|
+| Security Test Report | security-test-report.md | Test report | 0.8 |
+| Import Security Analysis | D5DSH\_Import\_Security\_Analysis.md | Analysis | 1.1 |
+| Security Review Report | D5DSH\_Security\_Review\_Reportl.md | Review report | 1.0 |
+| Runtime Security Test Plan | SECURITY\_RUNTIME\_TEST\_PLAN.md | Test plan | 1.0 |
+| WP Plugin Security Checklist | SecurityCheck\_WP\_Plugin\_chat\_26-Mar-2026.md | Reference | — |
+
+<details>
+<summary>security-test-report.md — Security Test Report</summary>
+
+Results of structured security testing of the D5 Design System Helper plugin's import and export functionality. Covers the test methodology, attack taxonomy, fixture-based test results across all supported data types (strings, links, images, numbers, colors, fonts, presets), key findings, and recommendations. Tests were conducted using a controlled import/export cycle with purpose-built poison fixture files.
+
+</details>
+
+<details>
+<summary>D5DSH\_Import\_Security\_Analysis.md — Import Security Analysis</summary>
+
+A detailed code-level security analysis of the plugin's import pipeline. Documents how each import path sanitizes incoming data, what protections are in place against common injection vectors (XSS, SQL injection, path traversal, zip slip), and the sanitization logging system that records every transformation applied to imported values.
+
+</details>
+
+<details>
+<summary>D5DSH\_Security\_Review\_Reportl.md — Security Review Report</summary>
+
+A four-phase WordPress plugin security review covering static code analysis, dependency scanning, privilege and capability checks, and runtime testing. Documents all findings, their severity, and their remediation status. Conducted against plugin version 0.6.12.
+
+</details>
+
+<details>
+<summary>SECURITY\_RUNTIME\_TEST\_PLAN.md — Runtime Security Test Plan</summary>
+
+The test plan for Phase 3 (runtime testing) of the WordPress plugin security review. Provides a structured checklist of live-site tests covering input validation, output escaping, AJAX endpoint authorization, file handling, and error behavior. Intended to be executed against a live WordPress instance with the plugin active.
+
+</details>
+
+<details>
+<summary>SecurityCheck\_WP\_Plugin\_chat\_26-Mar-2026.md — WP Plugin Security Checklist</summary>
+
+A practical WordPress plugin security review checklist combining automated scanning, manual code review, privilege testing, and remediation guidance. Covers PHP and JavaScript security, WordPress-specific concerns (nonces, capabilities, sanitization, escaping), and the review methodology used for this project.
+
+</details>
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

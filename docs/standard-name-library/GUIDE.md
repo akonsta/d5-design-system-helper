@@ -397,3 +397,7 @@ When in doubt, prefer:
 ---
 
 _Last updated: 2026-03-16_
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

@@ -195,3 +195,7 @@ All of the following must be true before the plugin passes runtime testing:
 - [ ] Path traversal attempts are rejected
 - [ ] Malformed JSON produces a clean error response (no PHP fatal/warning)
 - [ ] All findings recorded in the findings table
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

@@ -81,3 +81,7 @@ When Divi changes its serialization, the effort required depends on the type of 
 ## The spec is normative
 
 `SERIALIZATION_SPEC.md` is the specification; `DiviBlocParser.php` is the implementation. If the spec says something the code does not do, the code is wrong — not the spec. When fixing a parsing bug, update the spec first, then the code.
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

@@ -348,3 +348,7 @@ If no values were modified by sanitization, the panel does not appear
                                             and user-facing report; Excel
                                             VarsImporter sanitization added
   ------------------------------------------------------------------------------
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

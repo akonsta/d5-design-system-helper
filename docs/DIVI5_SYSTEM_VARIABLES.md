@@ -217,3 +217,7 @@ For the complete formal grammar, see [SERIALIZATION_SPEC.md](SERIALIZATION_SPEC.
 4. **Are there hardwired preset IDs?** Certain preset IDs may also be baked into Divi, similar to how `gvid-r41n4b9xo4` is baked into the variable system.
 
 5. **Does the `folder` field on global colors ever have a non-empty value?** On the tested site it was `''` for all 49 colors. If folder support exists, the hidden palette detection by label pattern may need to be reconsidered.
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

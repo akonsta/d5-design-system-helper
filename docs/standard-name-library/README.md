@@ -117,3 +117,7 @@ The plugin will flag:
 ---
 
 _This library is part of the D5 Design System Helper plugin. Last updated: 2026-03-16._
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

@@ -135,3 +135,7 @@ Reference issues where relevant: `Closes #42`.
 ## Questions?
 
 Open a [Discussion](../../discussions) or email [konsta@me2we.com](mailto:konsta@me2we.com) for questions that don't fit an issue.
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

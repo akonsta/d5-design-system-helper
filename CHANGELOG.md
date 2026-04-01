@@ -146,3 +146,7 @@ Test suite: 439 tests, 954 assertions passing.
 - WordPress 6.2+
 - PHP 8.1+
 - Divi 5.0+
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*

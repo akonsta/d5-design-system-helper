@@ -126,3 +126,7 @@ All core management, naming, import, and export features will remain free in the
 ---
 
 *Roadmap reflects current thinking and is subject to change based on user feedback. Feature suggestions welcome via the feedback button in the plugin (envelope icon, top right).*
+
+---
+
+*Source: [github.com/akonsta/d5-design-system-helper](https://github.com/akonsta/d5-design-system-helper)*
