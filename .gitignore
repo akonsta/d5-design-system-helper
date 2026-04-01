@@ -32,6 +32,9 @@ composer.phar
 /tabulator-test.html
 /manage-tables-doc.js
 
+# Divi-native security test fixtures (third-party product testing artifacts)
+tests/fixtures/security/d5 tests/
+
 # Claude Code local settings, ignore rules, and worktree artifacts
 .claude/
 .claudeignore
