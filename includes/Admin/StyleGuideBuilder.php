@@ -12,6 +12,7 @@ namespace D5DesignSystemHelper\Admin;
 
 use D5DesignSystemHelper\Data\VarsRepository;
 use D5DesignSystemHelper\Data\PresetsRepository;
+use D5DesignSystemHelper\Util\DebugLogger;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -64,11 +65,16 @@ class StyleGuideBuilder {
 			}
 		}
 
-		wp_send_json_success( [
-			'vars'         => $all_vars,
-			'presets'      => $presets,
-			'categories'   => $cat_manager->get_categories(),
-			'category_map' => $cat_manager->get_map(),
-		] );
+		try {
+			$result = [
+				'vars'         => $all_vars,
+				'presets'      => $presets,
+				'categories'   => $cat_manager->get_categories(),
+				'category_map' => $cat_manager->get_map(),
+			];
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to build style guide data.' );
+		}
+		wp_send_json_success( $result );
 	}
 }

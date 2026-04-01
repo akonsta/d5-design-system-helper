@@ -22,6 +22,7 @@ use D5DesignSystemHelper\Admin\SnapshotManager;
 use D5DesignSystemHelper\Data\PresetsRepository;
 use D5DesignSystemHelper\Data\VarsRepository;
 use D5DesignSystemHelper\Util\DiviBlocParser;
+use D5DesignSystemHelper\Util\DebugLogger;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -60,7 +61,11 @@ class MergeManager {
 			wp_send_json_error( [ 'message' => 'retire_id is required.' ], 400 );
 		}
 
-		$affected = $this->find_affected_presets( $retire_id );
+		try {
+			$affected = $this->find_affected_presets( $retire_id );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Merge preview failed.' );
+		}
 		wp_send_json_success( [ 'affected_presets' => $affected, 'count' => count( $affected ) ] );
 	}
 
@@ -85,12 +90,14 @@ class MergeManager {
 			wp_send_json_error( [ 'message' => 'keep_id and retire_id must differ.' ], 400 );
 		}
 
-		$result = $this->merge( $keep_id, $retire_id );
-
+		try {
+			$result = $this->merge( $keep_id, $retire_id );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Merge failed.' );
+		}
 		if ( isset( $result['error'] ) ) {
 			wp_send_json_error( [ 'message' => $result['error'] ] );
 		}
-
 		wp_send_json_success( $result );
 	}
 

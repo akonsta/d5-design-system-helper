@@ -31,9 +31,36 @@ function _d5dsh_reset_stubs(): void {
 	if ( isset( $GLOBALS['wpdb'] ) ) {
 		$GLOBALS['wpdb']->_stub_results = [];
 	}
+	// Clean up any debug log file created during tests.
+	$log = sys_get_temp_dir() . '/d5dsh_test_uploads/d5dsh-logs/debug.log';
+	if ( file_exists( $log ) ) {
+		file_put_contents( $log, '' );
+	}
 }
 
 _d5dsh_reset_stubs();
+
+// ── Upload dir stub ───────────────────────────────────────────────────────────
+// Points to a temp directory so DebugLogger can create/read/write its log file.
+
+function wp_upload_dir( ?string $time = null, bool $create_dir = true, bool $refresh_cache = false ): array {
+	$dir = sys_get_temp_dir() . '/d5dsh_test_uploads';
+	return [
+		'path'    => $dir,
+		'url'     => 'https://example.com/wp-content/uploads',
+		'subdir'  => '',
+		'basedir' => $dir,
+		'baseurl' => 'https://example.com/wp-content/uploads',
+		'error'   => false,
+	];
+}
+
+function wp_mkdir_p( string $target ): bool {
+	if ( is_dir( $target ) ) {
+		return true;
+	}
+	return mkdir( $target, 0755, true );
+}
 
 // ── wp_options stubs ─────────────────────────────────────────────────────────
 
@@ -63,6 +90,16 @@ function delete_option( string $key ): bool {
 
 // ── Sanitization stubs ────────────────────────────────────────────────────────
 // These mirror WordPress's actual behaviour closely enough for unit tests.
+
+function wp_unslash( mixed $value ): mixed {
+	if ( is_string( $value ) ) {
+		return stripslashes( $value );
+	}
+	if ( is_array( $value ) ) {
+		return array_map( 'stripslashes', $value );
+	}
+	return $value;
+}
 
 function sanitize_text_field( string $str ): string {
 	// Strip tags, trim, collapse internal whitespace.

@@ -37,6 +37,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 use D5DesignSystemHelper\Data\PresetsRepository;
 use D5DesignSystemHelper\Exporters\PresetsExporter;
+use D5DesignSystemHelper\Util\DebugLogger;
 
 /**
  * Class PresetsManager
@@ -81,13 +82,17 @@ class PresetsManager {
 			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
 		}
 
-		$repo = new PresetsRepository();
-		$raw  = $repo->get_raw();
-
-		wp_send_json_success( [
-			'element_presets' => $this->flatten_element_presets( $raw ),
-			'group_presets'   => $this->flatten_group_presets( $raw ),
-		] );
+		try {
+			$repo   = new PresetsRepository();
+			$raw    = $repo->get_raw();
+			$result = [
+				'element_presets' => $this->flatten_element_presets( $raw ),
+				'group_presets'   => $this->flatten_group_presets( $raw ),
+			];
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to load presets.' );
+		}
+		wp_send_json_success( $result );
 	}
 
 	// -------------------------------------------------------------------------
@@ -142,14 +147,18 @@ class PresetsManager {
 			// $raw = $this->apply_group_default_changes( $raw, $group_changes );
 		}
 
-		$saved = $repo->save_raw( $raw );
-		$fresh = $repo->get_raw();
-
-		wp_send_json_success( [
-			'element_presets' => $this->flatten_element_presets( $fresh ),
-			'group_presets'   => $this->flatten_group_presets( $fresh ),
-			'saved'           => $saved,
-		] );
+		try {
+			$saved  = $repo->save_raw( $raw );
+			$fresh  = $repo->get_raw();
+			$result = [
+				'element_presets' => $this->flatten_element_presets( $fresh ),
+				'group_presets'   => $this->flatten_group_presets( $fresh ),
+				'saved'           => $saved,
+			];
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to save presets.' );
+		}
+		wp_send_json_success( $result );
 	}
 
 	// -------------------------------------------------------------------------
@@ -168,7 +177,12 @@ class PresetsManager {
 			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
 		}
 
-		( new PresetsExporter() )->stream_download();
+		try {
+			( new PresetsExporter() )->stream_download();
+			// stream_download() exits on success — execution ends there.
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Presets XLSX export failed.' );
+		}
 	}
 
 	// -------------------------------------------------------------------------

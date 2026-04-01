@@ -39,6 +39,11 @@ if ( ! defined( 'D5DSH_URL' ) ) {
 if ( ! defined( 'MINUTE_IN_SECONDS' ) ) {
 	define( 'MINUTE_IN_SECONDS', 60 );
 }
+// Enable debug mode so DebugLogger writes to the test log directory.
+// Tests that need debug-off behaviour use TestableDebugLogger (overrides is_active()).
+if ( ! defined( 'D5DSH_DEBUG' ) ) {
+	define( 'D5DSH_DEBUG', true );
+}
 
 // ── WordPress function stubs ──────────────────────────────────────────────────
 

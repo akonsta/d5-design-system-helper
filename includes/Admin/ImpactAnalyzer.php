@@ -20,6 +20,7 @@ namespace D5DesignSystemHelper\Admin;
 use D5DesignSystemHelper\Data\PresetsRepository;
 use D5DesignSystemHelper\Data\VarsRepository;
 use D5DesignSystemHelper\Util\DiviBlocParser;
+use D5DesignSystemHelper\Util\DebugLogger;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -93,7 +94,11 @@ class ImpactAnalyzer {
 			wp_send_json_error( [ 'message' => 'dso_type and dso_id are required.' ], 400 );
 		}
 
-		$result = $this->analyze( $dso_type, $dso_id );
+		try {
+			$result = $this->analyze( $dso_type, $dso_id );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Impact analysis failed.' );
+		}
 		wp_send_json_success( $result );
 	}
 

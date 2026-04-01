@@ -5,7 +5,7 @@
  * Author:       Andrew Konstantaras and Claude Code
  * Author URI:   https://github.com/akonsta
  * Description:  Manage, export, import, and audit your entire Divi 5 design system — Global Variables (colors, numbers, fonts, images, text, links), Element Presets, Option Group Presets, Layouts, Pages, Theme Customizer settings, and Builder Templates. Requires Divi 5.0+, WordPress 6.2+, and PHP 8.1+. Not affiliated with or endorsed by Elegant Themes.
- * Version:      0.1.0
+ * Version:      0.1.1.2
  * Requires at least: 6.2
  * Requires PHP: 8.1
  * License:      GPL-2.0-or-later
@@ -170,7 +170,7 @@ if ( ! defined( 'D5DSH_URL' ) ) {
 
 /** Plugin version string. */
 if ( ! defined( 'D5DSH_VERSION' ) ) {
-	define( 'D5DSH_VERSION', '0.1.0' );
+	define( 'D5DSH_VERSION', '0.1.1.2' );
 }
 
 /**
@@ -304,3 +304,21 @@ register_deactivation_hook( __FILE__, [ 'D5DesignSystemHelper\\Plugin', 'deactiv
 add_action( 'plugins_loaded', function (): void {
 	( new \D5DesignSystemHelper\Plugin() )->init();
 } );
+
+// ── WP-CLI commands ───────────────────────────────────────────────────────────
+
+/**
+ * Register WP-CLI commands when running in CLI context.
+ *
+ * Command: wp d5dsh security-test --dir=<path> [--out=<path>] [--verbose]
+ *
+ * Runs a batch of JSON fixture files through the D5DSH importer, records
+ * results (status, sanitization log, entry counts, post-import export), and
+ * restores the database to its pre-test state between runs.
+ */
+if ( defined( 'WP_CLI' ) && WP_CLI ) {
+	\WP_CLI::add_command(
+		'd5dsh security-test',
+		\D5DesignSystemHelper\Cli\SecurityTestCommand::class
+	);
+}

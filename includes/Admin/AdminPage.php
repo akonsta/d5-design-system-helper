@@ -111,7 +111,12 @@ class AdminPage {
 		( new SimpleImporter() )->register();
 
 		// Register settings save AJAX endpoint.
-		add_action( 'wp_ajax_d5dsh_save_settings', [ $this, 'ajax_save_settings' ] );
+		add_action( 'wp_ajax_d5dsh_save_settings',        [ $this, 'ajax_save_settings'        ] );
+		add_action( 'wp_ajax_d5dsh_security_test',        [ $this, 'ajax_security_test'        ] );
+		add_action( 'wp_ajax_d5dsh_sanitization_report_xlsx', [ $this, 'ajax_sanitization_report_xlsx' ] );
+		add_action( 'wp_ajax_d5dsh_log_js_error',         [ $this, 'ajax_log_js_error'         ] );
+		add_action( 'wp_ajax_d5dsh_debug_log_read',       [ $this, 'ajax_debug_log_read'       ] );
+		add_action( 'wp_ajax_d5dsh_debug_log_clear',      [ $this, 'ajax_debug_log_clear'      ] );
 
 		// Register validate AJAX endpoint.
 		add_action( 'wp_ajax_d5dsh_validate', [ $this, 'ajax_validate' ] );
@@ -261,8 +266,10 @@ class AdminPage {
 		] );
 		// Pass AJAX URL and nonce for Simple Import.
 		wp_localize_script( 'd5dsh-admin', 'd5dtSimpleImport', [
-			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-			'nonce'   => wp_create_nonce( SimpleImporter::NONCE_ACTION ),
+			'ajaxUrl'         => admin_url( 'admin-ajax.php' ),
+			'nonce'           => wp_create_nonce( SimpleImporter::NONCE_ACTION ),
+			'xlsxAction'      => 'd5dsh_sanitization_report_xlsx',
+			'xlsxNonce'       => wp_create_nonce( 'd5dsh_sanitization_report_xlsx' ),
 		] );
 		// Pass AJAX URL and nonce for the Audit tab and Content Scanner.
 		// ContentScanner::ajax_run() verifies the same 'd5dsh_audit_nonce' nonce.
@@ -310,15 +317,20 @@ class AdminPage {
 		$blog_slug  = trim( $blog_slug, '_' );
 		$site_abbr  = ! empty( $settings['site_abbr'] ) ? $settings['site_abbr'] : $blog_slug;
 		wp_localize_script( 'd5dsh-admin', 'd5dtSettings', [
-			'ajaxUrl'       => admin_url( 'admin-ajax.php' ),
-			'nonce'         => wp_create_nonce( self::NONCE_SETTINGS ),
-			'debugMode'     => ! empty( $settings['debug_mode'] ),
-			'betaPreview'   => ! empty( $settings['beta_preview'] ),
-			'siteUrl'       => home_url(),
-			'reportHeader'  => $settings['report_header'] ?? '',
-			'reportFooter'  => $settings['report_footer'] ?? '',
-			'siteAbbr'      => $site_abbr,
-			'blogName'      => $blog_name,
+			'ajaxUrl'          => admin_url( 'admin-ajax.php' ),
+			'nonce'            => wp_create_nonce( self::NONCE_SETTINGS ),
+			'debugMode'        => ! empty( $settings['debug_mode'] ),
+			'betaPreview'      => ! empty( $settings['beta_preview'] ),
+			'securityTesting'  => ! empty( $settings['security_testing'] ),
+			'siteUrl'          => home_url(),
+			'reportHeader'     => $settings['report_header'] ?? '',
+			'reportFooter'     => $settings['report_footer'] ?? '',
+			'siteAbbr'         => $site_abbr,
+			'blogName'         => $blog_name,
+		] );
+		wp_localize_script( 'd5dsh-admin', 'd5dtSecTest', [
+			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+			'nonce'   => wp_create_nonce( 'd5dsh_security_test' ),
 		] );
 	}
 
@@ -373,14 +385,14 @@ class AdminPage {
 
 		// Collect optional additional information fields (Excel export only).
 		$additional_info = [
-			'owner'       => sanitize_text_field( $_POST['d5dsh_info_owner']       ?? '' ),
-			'customer'    => sanitize_text_field( $_POST['d5dsh_info_customer']    ?? '' ),
-			'company'     => sanitize_text_field( $_POST['d5dsh_info_company']     ?? '' ),
-			'project'     => sanitize_text_field( $_POST['d5dsh_info_project']     ?? '' ),
-			'version_tag' => sanitize_text_field( $_POST['d5dsh_info_version_tag'] ?? '' ),
-			'status'      => sanitize_text_field( $_POST['d5dsh_info_status']      ?? '' ),
-			'environment' => sanitize_text_field( $_POST['d5dsh_info_environment'] ?? '' ),
-			'comments'    => sanitize_textarea_field( $_POST['d5dsh_info_comments'] ?? '' ),
+			'owner'       => sanitize_text_field( wp_unslash( $_POST['d5dsh_info_owner'] ?? '' ) ),
+			'customer'    => sanitize_text_field( wp_unslash( $_POST['d5dsh_info_customer'] ?? '' ) ),
+			'company'     => sanitize_text_field( wp_unslash( $_POST['d5dsh_info_company'] ?? '' ) ),
+			'project'     => sanitize_text_field( wp_unslash( $_POST['d5dsh_info_project'] ?? '' ) ),
+			'version_tag' => sanitize_text_field( wp_unslash( $_POST['d5dsh_info_version_tag'] ?? '' ) ),
+			'status'      => sanitize_text_field( wp_unslash( $_POST['d5dsh_info_status'] ?? '' ) ),
+			'environment' => sanitize_text_field( wp_unslash( $_POST['d5dsh_info_environment'] ?? '' ) ),
+			'comments'    => sanitize_textarea_field( wp_unslash( $_POST['d5dsh_info_comments'] ?? '' ) ),
 		];
 
 		if ( ! in_array( $format, [ 'xlsx', 'json', 'dtcg' ], true ) ) {
@@ -744,11 +756,12 @@ class AdminPage {
 		}
 		return array_merge(
 			[
-				'debug_mode'    => false,
-				'beta_preview'  => false,
-				'report_header' => '',
-				'report_footer' => '',
-				'site_abbr'     => '',
+				'debug_mode'        => false,
+				'beta_preview'      => false,
+				'security_testing'  => false,
+				'report_header'     => '',
+				'report_footer'     => '',
+				'site_abbr'         => '',
 			],
 			$saved
 		);
@@ -773,8 +786,9 @@ class AdminPage {
 		}
 
 		$current                  = self::get_settings();
-		$current['debug_mode']    = ! empty( $payload['debug_mode'] );
-		$current['beta_preview']  = ! empty( $payload['beta_preview'] );
+		$current['debug_mode']       = ! empty( $payload['debug_mode'] );
+		$current['beta_preview']     = ! empty( $payload['beta_preview'] );
+		$current['security_testing'] = ! empty( $payload['security_testing'] );
 		$current['report_header'] = sanitize_text_field( $payload['report_header'] ?? '' );
 		$current['report_footer'] = sanitize_text_field( $payload['report_footer'] ?? '' );
 		$current['site_abbr']     = sanitize_text_field( $payload['site_abbr'] ?? '' );
@@ -784,10 +798,228 @@ class AdminPage {
 		DebugLogger::log( 'Settings saved. debug_mode=' . ( $current['debug_mode'] ? 'true' : 'false' ), 'AdminPage::ajax_save_settings' );
 
 		wp_send_json_success( [
-			'message'      => __( 'Settings saved.', 'd5-design-system-helper' ),
-			'debug_mode'   => $current['debug_mode'],
-			'beta_preview' => $current['beta_preview'],
+			'message'           => __( 'Settings saved.', 'd5-design-system-helper' ),
+			'debug_mode'        => $current['debug_mode'],
+			'beta_preview'      => $current['beta_preview'],
+			'security_testing'  => $current['security_testing'],
 		] );
+	}
+
+	// ── AJAX: JS Error Logger ─────────────────────────────────────────────────
+
+	/**
+	 * AJAX: receive a JS-side error (window.onerror / unhandledrejection) and
+	 * write it to the debug log.
+	 *
+	 * Only active when debug mode is on. Accepts a JSON body with:
+	 *   { message, source, lineno, colno, stack, type }
+	 *
+	 * Returns 200 with { ok: true } on success; 204 when debug is off.
+	 */
+	public function ajax_log_js_error(): void {
+		// Verify nonce — same settings nonce JS already has.
+		check_ajax_referer( self::NONCE_SETTINGS, 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
+		}
+
+		// Silently discard when debug mode is off so no log noise in production.
+		if ( ! DebugLogger::is_active() ) {
+			wp_send_json_success( [ 'ok' => false, 'reason' => 'debug_off' ] );
+		}
+
+		$raw     = sanitize_text_field( wp_unslash( $_POST['body'] ?? '' ) );
+		$payload = $raw ? json_decode( $raw, true ) : [];
+		if ( ! is_array( $payload ) ) {
+			$payload = [];
+		}
+
+		$message = sanitize_text_field( $payload['message'] ?? 'Unknown JS error' );
+		$source  = sanitize_text_field( $payload['source']  ?? '' );
+		$lineno  = intval( $payload['lineno'] ?? 0 );
+		$colno   = intval( $payload['colno']  ?? 0 );
+		$stack   = sanitize_textarea_field( $payload['stack'] ?? '' );
+		$type    = sanitize_key( $payload['type'] ?? 'error' );
+
+		$detail = "{$message}";
+		if ( $source ) {
+			$detail .= "\n  at {$source}:{$lineno}:{$colno}";
+		}
+		if ( $stack ) {
+			$detail .= "\n  Stack:\n    " . str_replace( "\n", "\n    ", $stack );
+		}
+
+		DebugLogger::log_error( "[JS:{$type}] {$detail}", 'frontend' );
+
+		wp_send_json_success( [ 'ok' => true ] );
+	}
+
+	// ── AJAX: Debug Log ───────────────────────────────────────────────────────
+
+	/**
+	 * AJAX: return the last N lines of the debug log as a string.
+	 *
+	 * Response: { ok: bool, lines: string, size_kb: float, path: string }
+	 */
+	public function ajax_debug_log_read(): void {
+		check_ajax_referer( self::NONCE_SETTINGS, 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
+		}
+
+		if ( ! DebugLogger::is_active() ) {
+			wp_send_json_error( [ 'message' => 'Debug mode is not active.' ], 403 );
+		}
+
+		$path = DebugLogger::log_path();
+
+		if ( ! $path || ! file_exists( $path ) ) {
+			wp_send_json_success( [ 'ok' => true, 'lines' => '', 'size_kb' => 0, 'path' => $path ?? '' ] );
+		}
+
+		$size_kb = round( filesize( $path ) / 1024, 1 );
+		$lines   = intval( $_GET['lines'] ?? 200 );
+		$lines   = max( 50, min( 1000, $lines ) );
+
+		// Read last $lines lines efficiently.
+		$content = '';
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$all = file( $path, FILE_IGNORE_NEW_LINES );
+		if ( is_array( $all ) ) {
+			$content = implode( "\n", array_slice( $all, -$lines ) );
+		}
+
+		wp_send_json_success( [
+			'ok'      => true,
+			'lines'   => $content,
+			'size_kb' => $size_kb,
+			'path'    => basename( dirname( $path ) ) . '/' . basename( $path ),
+		] );
+	}
+
+	/**
+	 * AJAX: clear the debug log file (zero it out, keep the file).
+	 *
+	 * Response: { ok: bool }
+	 */
+	public function ajax_debug_log_clear(): void {
+		check_ajax_referer( self::NONCE_SETTINGS, 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
+		}
+
+		if ( ! DebugLogger::is_active() ) {
+			wp_send_json_error( [ 'message' => 'Debug mode is not active.' ], 403 );
+		}
+
+		DebugLogger::clear_log();
+		wp_send_json_success( [ 'ok' => true ] );
+	}
+
+	// ── AJAX: Security Test ───────────────────────────────────────────────────
+
+	/**
+	 * AJAX: run a batch of JSON fixture files through the importer.
+	 *
+	 * Accepts either:
+	 *  - A server-side directory path in the 'dir' POST field, or
+	 *  - One or more uploaded files in $_FILES['files'].
+	 *
+	 * Returns a structured JSON report and writes the same report to disk.
+	 */
+	public function ajax_security_test(): void {
+		check_ajax_referer( 'd5dsh_security_test', 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
+		}
+
+		// Security testing must be enabled in settings.
+		if ( empty( self::get_settings()['security_testing'] ) ) {
+			wp_send_json_error( [ 'message' => 'Security testing is not enabled in Settings → Advanced.' ], 403 );
+		}
+
+		$verbose = ! empty( $_POST['verbose'] );
+
+		// Collect fixture data: either from an uploaded batch or a server path.
+		$fixtures = []; // array of [ 'name' => string, 'data' => array ]
+
+		// ── Option A: uploaded files ──────────────────────────────────────────
+		if ( ! empty( $_FILES['files']['tmp_name'] ) ) {
+			$tmp_names    = (array) $_FILES['files']['tmp_name'];
+			$file_names   = (array) $_FILES['files']['name'];
+			$file_errors  = (array) $_FILES['files']['error'];
+
+			foreach ( $tmp_names as $i => $tmp ) {
+				if ( ( $file_errors[ $i ] ?? UPLOAD_ERR_NO_FILE ) !== UPLOAD_ERR_OK ) {
+					continue;
+				}
+				if ( ! is_uploaded_file( $tmp ) ) {
+					continue;
+				}
+				$name = sanitize_file_name( $file_names[ $i ] ?? 'fixture.json' );
+				if ( strtolower( pathinfo( $name, PATHINFO_EXTENSION ) ) !== 'json' ) {
+					continue;
+				}
+				$json = file_get_contents( $tmp ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+				$data = json_decode( $json, true );
+				if ( is_array( $data ) ) {
+					$fixtures[] = [ 'name' => $name, 'data' => $data ];
+				}
+			}
+		}
+
+		// ── Option B: server-side directory path ──────────────────────────────
+		if ( empty( $fixtures ) && ! empty( $_POST['dir'] ) ) {
+			$dir = sanitize_text_field( wp_unslash( $_POST['dir'] ) );
+
+			// Resolve the real path and confirm it is a readable directory.
+			// No restriction to ABSPATH — this panel is administrator-only and
+			// gated behind an explicit setting, so dev fixture directories
+			// outside the WP root are a valid use case.
+			$real_dir = realpath( $dir );
+			if ( ! $real_dir || ! is_dir( $real_dir ) || ! is_readable( $real_dir ) ) {
+				wp_send_json_error( [ 'message' => 'Directory not found or not readable: ' . esc_html( $dir ) ], 400 );
+			}
+
+			$files = glob( $real_dir . '/*.json' ) ?: [];
+			sort( $files );
+			foreach ( $files as $file_path ) {
+				if ( ! is_file( $file_path ) ) {
+					continue;
+				}
+				$json = file_get_contents( $file_path ); // phpcs:ignore WordPress.WP.AlternativeFunctions
+				$data = json_decode( $json, true );
+				if ( is_array( $data ) ) {
+					$fixtures[] = [ 'name' => basename( $file_path ), 'data' => $data ];
+				}
+			}
+		}
+
+		if ( empty( $fixtures ) ) {
+			wp_send_json_error( [ 'message' => 'No valid JSON fixture files found. Provide a directory path or upload files.' ], 400 );
+		}
+
+		// ── Run tests ─────────────────────────────────────────────────────────
+		$runner  = new \D5DesignSystemHelper\Cli\SecurityTestRunner();
+		$report  = $runner->run( $fixtures, $verbose );
+
+		// ── Write report to disk ──────────────────────────────────────────────
+		$upload      = wp_upload_dir();
+		$log_dir     = $upload['basedir'] . '/d5dsh-logs';
+		wp_mkdir_p( $log_dir );
+		$report_name = 'security-test-' . gmdate( 'Ymd-His' ) . '.json';
+		$report_path = $log_dir . '/' . $report_name;
+		file_put_contents( // phpcs:ignore WordPress.WP.AlternativeFunctions
+			$report_path,
+			wp_json_encode( $report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE )
+		);
+		$report['_report_file'] = $upload['baseurl'] . '/d5dsh-logs/' . $report_name;
+
+		wp_send_json_success( $report );
 	}
 
 	// ── Render ────────────────────────────────────────────────────────────────
@@ -943,6 +1175,28 @@ class AdminPage {
 						<p class="d5dsh-setting-description">
 							<?php esc_html_e( 'When enabled: shows the Snapshots and Audit tabs, the Audit button on the Import page, Bulk Label Change mode, and blank import template downloads. Off by default.', 'd5-design-system-helper' ); ?>
 						</p>
+						<label class="d5dsh-setting-row">
+							<input type="checkbox" id="d5dsh-setting-security-testing"<?php checked( ! empty( $settings['security_testing'] ) ); ?>>
+							<?php esc_html_e( 'Show Security Testing Features', 'd5-design-system-helper' ); ?>
+						</label>
+						<p class="d5dsh-setting-description">
+							<?php esc_html_e( 'When enabled: shows the Security Testing panel on the Import tab. Run batches of JSON fixture files through the importer, capture sanitization logs, and export results. For development and security auditing only — not intended for production use.', 'd5-design-system-helper' ); ?>
+						</p>
+						<?php if ( $debug_on ) : ?>
+						<hr class="d5dsh-settings-divider">
+						<div class="d5dsh-debug-log-viewer">
+							<div class="d5dsh-debug-log-toolbar">
+								<strong><?php esc_html_e( 'Debug Log', 'd5-design-system-helper' ); ?></strong>
+								<span id="d5dsh-debug-log-meta" class="d5dsh-debug-log-meta"></span>
+								<div class="d5dsh-debug-log-actions">
+									<button type="button" id="d5dsh-debug-log-refresh" class="button button-small"><?php esc_html_e( 'Refresh', 'd5-design-system-helper' ); ?></button>
+									<button type="button" id="d5dsh-debug-log-clear" class="button button-small"><?php esc_html_e( 'Clear Log', 'd5-design-system-helper' ); ?></button>
+									<button type="button" id="d5dsh-debug-log-download" class="button button-small"><?php esc_html_e( 'Download', 'd5-design-system-helper' ); ?></button>
+								</div>
+							</div>
+							<pre id="d5dsh-debug-log-output" class="d5dsh-debug-log-output"><?php esc_html_e( 'Click Refresh to load log…', 'd5-design-system-helper' ); ?></pre>
+						</div>
+						<?php endif; ?>
 					</div>
 					<div class="d5dsh-modal-pane" data-pane="about" style="display:none">
 						<p><strong><?php esc_html_e( 'D5 Design System Helper', 'd5-design-system-helper' ); ?></strong></p>
@@ -1488,6 +1742,7 @@ class AdminPage {
 					<div class="d5dsh-modal-body" id="d5dsh-si-results-body"></div>
 					<div class="d5dsh-modal-footer">
 						<button type="button" id="d5dsh-si-save-report-btn" class="button"><?php esc_html_e( 'Save Report (.txt)', 'd5-design-system-helper' ); ?></button>
+						<button type="button" id="d5dsh-si-export-san-xlsx-btn" class="button" style="display:none"><?php esc_html_e( 'Export Security Report (.xlsx)', 'd5-design-system-helper' ); ?></button>
 						<button type="button" id="d5dsh-si-print-results-btn" class="button"><?php esc_html_e( 'Print', 'd5-design-system-helper' ); ?></button>
 						<button type="button" class="button button-primary d5dsh-modal-close" data-modal="d5dsh-si-results-modal"><?php esc_html_e( 'Done', 'd5-design-system-helper' ); ?></button>
 					</div>
@@ -1506,6 +1761,79 @@ class AdminPage {
 				<a href="<?php echo esc_url( wp_nonce_url( admin_url( 'admin-post.php?action=d5dsh_dl_template&type=theme_customizer' ), 'd5dsh_dl_template_theme_customizer' ) ); ?>" class="d5dsh-template-link">
 					<?php esc_html_e( 'Theme Customizer (.xlsx)', 'd5-design-system-helper' ); ?>
 				</a>
+			</div>
+
+			<?php /* ── Security Testing Panel ─────────────────────────── */ ?>
+			<?php $sec_on = ! empty( self::get_settings()['security_testing'] ); ?>
+			<div id="d5dsh-sectest-panel" class="d5dsh-panel d5dsh-sectest-panel" style="<?php echo $sec_on ? '' : 'display:none'; ?>">
+				<h3 class="d5dsh-sectest-heading">
+					<?php esc_html_e( 'Security Testing', 'd5-design-system-helper' ); ?>
+					<span class="d5dsh-sectest-badge"><?php esc_html_e( 'Dev Only', 'd5-design-system-helper' ); ?></span>
+				</h3>
+				<p class="d5dsh-sectest-intro">
+					<?php esc_html_e( 'Run a batch of JSON fixture files through the D5DSH importer. Each file is imported, results are captured, the database is restored, and the next file is processed. A JSON report is saved to wp-content/uploads/d5dsh-logs/.', 'd5-design-system-helper' ); ?>
+				</p>
+
+				<div class="d5dsh-sectest-fields">
+					<label class="d5dsh-sectest-label" for="d5dsh-sectest-dir">
+						<?php esc_html_e( 'Fixture directory (server path)', 'd5-design-system-helper' ); ?>
+					</label>
+					<div class="d5dsh-sectest-row">
+						<input type="text" id="d5dsh-sectest-dir" class="regular-text d5dsh-sectest-dir-input"
+							placeholder="<?php esc_attr_e( 'Absolute path to directory containing *.json fixtures', 'd5-design-system-helper' ); ?>">
+					</div>
+
+					<label class="d5dsh-sectest-label" style="margin-top:10px">
+						<?php esc_html_e( 'Or upload fixture files directly', 'd5-design-system-helper' ); ?>
+					</label>
+					<div class="d5dsh-sectest-row">
+						<input type="file" id="d5dsh-sectest-files" class="d5dsh-sectest-file-input"
+							accept=".json" multiple>
+						<span class="d5dsh-sectest-file-hint">
+							<?php esc_html_e( 'Select one or more .json fixture files', 'd5-design-system-helper' ); ?>
+						</span>
+					</div>
+
+					<div class="d5dsh-sectest-options">
+						<label class="d5dsh-sectest-option-label">
+							<input type="checkbox" id="d5dsh-sectest-verbose">
+							<?php esc_html_e( 'Include per-variable detail in report', 'd5-design-system-helper' ); ?>
+						</label>
+					</div>
+
+					<div class="d5dsh-sectest-action-row">
+						<button type="button" id="d5dsh-sectest-run-btn" class="button button-primary">
+							<?php esc_html_e( 'Run Security Tests', 'd5-design-system-helper' ); ?>
+						</button>
+						<span id="d5dsh-sectest-spinner" class="spinner" style="float:none;display:none;"></span>
+						<span id="d5dsh-sectest-status" class="d5dsh-sectest-status"></span>
+					</div>
+				</div>
+
+				<?php /* Results area — populated by JS after run */ ?>
+				<div id="d5dsh-sectest-results" style="display:none">
+					<div class="d5dsh-sectest-summary" id="d5dsh-sectest-summary"></div>
+					<div class="d5dsh-sectest-report-actions">
+						<button type="button" id="d5dsh-sectest-download-btn" class="button">
+							<?php esc_html_e( 'Download Report (JSON)', 'd5-design-system-helper' ); ?>
+						</button>
+						<span id="d5dsh-sectest-report-path" class="d5dsh-sectest-report-path"></span>
+					</div>
+					<table class="d5dsh-sectest-table widefat striped">
+						<thead>
+							<tr>
+								<th><?php esc_html_e( 'File', 'd5-design-system-helper' ); ?></th>
+								<th><?php esc_html_e( 'Status', 'd5-design-system-helper' ); ?></th>
+								<th><?php esc_html_e( 'Type', 'd5-design-system-helper' ); ?></th>
+								<th><?php esc_html_e( 'New', 'd5-design-system-helper' ); ?></th>
+								<th><?php esc_html_e( 'Updated', 'd5-design-system-helper' ); ?></th>
+								<th><?php esc_html_e( 'Sanitized', 'd5-design-system-helper' ); ?></th>
+								<th><?php esc_html_e( 'Details', 'd5-design-system-helper' ); ?></th>
+							</tr>
+						</thead>
+						<tbody id="d5dsh-sectest-tbody"></tbody>
+					</table>
+				</div>
 			</div>
 
 		</div>
@@ -2476,6 +2804,120 @@ class AdminPage {
 			admin_url( 'admin.php' )
 		) );
 		exit;
+	}
+
+	// ── Sanitization Report XLSX ─────────────────────────────────────────────
+
+	/**
+	 * AJAX handler. Accepts a sanitization log as JSON body, streams a formatted XLSX.
+	 * Hooked to wp_ajax_d5dsh_sanitization_report_xlsx.
+	 */
+	public function ajax_sanitization_report_xlsx(): never {
+		check_ajax_referer( 'd5dsh_sanitization_report_xlsx', 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( [ 'message' => 'Unauthorized' ], 403 );
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$raw     = file_get_contents( 'php://input' );
+		$payload = $raw ? json_decode( $raw, true ) : null;
+
+		if ( ! is_array( $payload ) || ! isset( $payload['log'] ) || ! is_array( $payload['log'] ) ) {
+			wp_send_json_error( [ 'message' => 'Invalid sanitization log data.' ], 400 );
+		}
+
+		$log      = $payload['log'];
+		$filename = $payload['filename'] ?? 'sanitization-report';
+
+		self::stream_sanitization_report_xlsx( $log, $filename );
+	}
+
+	/**
+	 * Build and stream the sanitization report XLSX.
+	 *
+	 * @param array  $log      Array of sanitization log entries.
+	 * @param string $filename Base filename without extension.
+	 */
+	private static function stream_sanitization_report_xlsx( array $log, string $filename ): never {
+		$ss = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+		$ss->removeSheetByIndex( 0 );
+
+		// Sheet inventory for Info sheet.
+		$sheet_cols = [
+			'Sanitization Log' => [ '#', 'Context', 'Field', 'Threat Type', 'Threat Summary', 'Outcome', 'Outcome Detail', 'Original Value', 'Stored As', 'Learn More' ],
+		];
+		ExportUtil::build_info_sheet( $ss, 'sanitization-report', '', $sheet_cols );
+
+		// Main data sheet.
+		$ws = $ss->createSheet();
+		$ws->setTitle( 'Sanitization Log' );
+
+		// Title row (col_count = 10).
+		ExportUtil::write_sheet_title_row( $ws, 10, 'Sanitization Report' );
+
+		// Header row at row 3 (row 2 is a spacer written by write_sheet_title_row).
+		$headers = [ '#', 'Context', 'Field', 'Threat Type', 'Threat Summary', 'Outcome', 'Outcome Detail', 'Original Value', 'Stored As', 'Learn More' ];
+		ExportUtil::write_header_row_at( $ws, $headers, 3, true );
+
+		// Outcome colour map.
+		$outcome_colors = [
+			'blocked' => 'FFFDE8E8', // light red
+			'partial' => 'FFFEF9C3', // light yellow
+			'encoded' => 'FFE0F2FE', // light blue
+		];
+
+		// Data rows starting at row 4.
+		$row = 4;
+		foreach ( $log as $i => $entry ) {
+			$outcome     = $entry['outcome']     ?? '';
+			$threat_type = $entry['threat_type'] ?? 'unknown';
+			$sanitized   = $entry['sanitized']   ?? '';
+
+			ExportUtil::cell( $ws, 1,  $row )->setValue( $i + 1 );
+			ExportUtil::cell( $ws, 2,  $row )->setValue( $entry['context']        ?? '' );
+			ExportUtil::cell( $ws, 3,  $row )->setValue( $entry['field']          ?? '' );
+			ExportUtil::cell( $ws, 4,  $row )->setValue( ucwords( str_replace( '_', ' ', $threat_type ) ) );
+			ExportUtil::cell( $ws, 5,  $row )->setValue( $entry['threat_summary'] ?? '' );
+			ExportUtil::cell( $ws, 6,  $row )->setValue( ucfirst( $outcome ) );
+			ExportUtil::cell( $ws, 7,  $row )->setValue( $entry['outcome_detail'] ?? '' );
+			ExportUtil::cell( $ws, 8,  $row )->setValue( $entry['original']       ?? '' );
+			ExportUtil::cell( $ws, 9,  $row )->setValue( $sanitized !== '' ? $sanitized : '(empty — value removed)' );
+
+			// Hyperlink for Learn More.
+			$ref_url = $entry['reference_url'] ?? '';
+			if ( $ref_url ) {
+				$cell_j = ExportUtil::cell( $ws, 10, $row );
+				$cell_j->setValue( 'Learn more' );
+				$cell_j->getHyperlink()->setUrl( $ref_url );
+				$ws->getStyleByColumnAndRow( 10, $row )->getFont()
+					->setUnderline( true )
+					->setColor( new \PhpOffice\PhpSpreadsheet\Style\Color( 'FF0000EE' ) );
+			}
+
+			// Row background by outcome.
+			if ( isset( $outcome_colors[ $outcome ] ) ) {
+				$ws->getStyle( 'A' . $row . ':J' . $row )->getFill()
+					->setFillType( \PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID )
+					->getStartColor()->setARGB( $outcome_colors[ $outcome ] );
+			}
+
+			// Wrap text for summary / detail / original columns (cols E–I).
+			$ws->getStyle( 'E' . $row . ':I' . $row )->getAlignment()->setWrapText( true );
+			$ws->getRowDimension( $row )->setRowHeight( -1 ); // auto height
+
+			$row++;
+		}
+
+		// Column widths (characters).
+		ExportUtil::set_column_widths( $ws, [ 4, 28, 12, 18, 52, 10, 42, 40, 40, 14 ] );
+
+		// Alternating row shading (rows 4 onward; apply_sheet_formatting starts at row 2 by convention).
+		// We skip calling it to avoid overwriting our outcome colours. Freeze is already set.
+
+		$ss->setActiveSheetIndex( 0 ); // open on Info
+		$safe_name = sanitize_file_name( $filename ) ?: 'sanitization-report';
+		ExportUtil::stream_xlsx( $ss, $safe_name . '.xlsx' );
 	}
 
 	/**

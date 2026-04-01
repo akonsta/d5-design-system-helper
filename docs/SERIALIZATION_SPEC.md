@@ -6,8 +6,9 @@
 | 1.1 | 2026-03-20 | Added ABNF grammar; refactored DiviBlocParser to multi-strategy dispatch |
 | 1.2 | 2026-03-20 | Expanded change-impact matrix; added §8 |
 | 1.3 | 2026-03-27 | Cleaned for public release |
+| 1.4 | 2026-03-30 | Added §15 (Divi native export JSON), §16 (D5DSH plugin export JSON), §17 (DTCG export JSON); updated §14 revision history |
 
-**Document version:** 1.3
+**Document version:** 1.4
 **Applies to:** Divi 5.x (confirmed through 5.0.0-public-beta.3 and later)
 **Status:** Normative — `DiviBlocParser.php` is the authoritative implementation of this spec
 
@@ -1223,3 +1224,810 @@ All six post statuses are included: `publish`, `draft`, `pending`, `private`,
 | 1.1 | 2026-03-20 | Added §13 ContentScanner scope, limitations, and assumptions |
 | 1.2 | 2026-03-23 | Added §8 DSO Storage Structures ABNF (§B1–§B9); updated §A5 to enumerate all known content post types with new `content-source` rule; renumbered old §8–§12 to §9–§13 |
 | 1.3 | 2026-03-26 | Added §9 Plugin Storage ABNF (§C1–§C7) documenting all `d5dsh_*` option keys and transients; verified ABNF against current `DiviBlocParser.php` patterns; added `VCHAR` and `WSP` terminals to §A7; renumbered old §9–§13 to §10–§14; moved from `archive/` to `docs/` as public-facing reference |
+| 1.4 | 2026-03-30 | Added §15 (Divi native export JSON format), §16 (D5DSH plugin export JSON format), §17 (DTCG export JSON format); all three confirmed against live exporter code and real Divi 5 sample files |
+| 1.5 | 2026-03-31 | No structural changes; document current as of plugin v0.1.1.2 |
+
+---
+
+## 15. Divi Native Export JSON Format
+
+This section documents the JSON format produced by Divi's own export UI (Theme Options →
+Import & Export, or the Divi Library export). This is **not** the same as the wp_options
+database storage format described in §8. It is a presentation format designed for
+portability between Divi sites.
+
+**Confirmed against:** `Divi-5-Launch-Freebie_Global-Variables.json` (Elegant Themes
+official sample, Divi 5.x).
+
+### 15.1 Top-Level Envelope
+
+A Divi native export file is always a single JSON object. The presence and meaning of
+top-level keys depends on the `context` field.
+
+```jsonc
+{
+  "context":        "<context-string>",   // Required. Identifies export type. See §15.2.
+  "data":           {},                   // Layout/page data dict (keyed by post ID). May be [].
+  "presets":        {},                   // Preset data. Structure per §15.5. May be [].
+  "global_colors":  [],                   // Array of color pairs. See §15.3.
+  "global_variables": [],                 // Flat array of variable objects. See §15.4.
+  "canvases":       [],                   // Theme Builder canvas data. May be [].
+  "images":         [],                   // Embedded image data. May be [].
+  "thumbnails":     []                    // Thumbnail data. May be [].
+}
+```
+
+**Key characteristic:** A single Divi export file is **omnibus** — it may contain
+variables, colors, presets, and layout/page data all in one file, governed by `context`.
+This is the primary structural difference from our plugin's format (§16), which exports
+each data type as a separate file.
+
+### 15.2 Context Values
+
+| `context` value | What the file contains |
+|---|---|
+| `"et_builder"` | Global variables + colors + presets (design system export) |
+| `"et_builder_layouts"` | Layout/page post data in `data` dict |
+| `"et_divi_mods"` | Theme Customizer settings |
+| `"et_template"` | Theme Builder template records |
+
+### 15.3 Global Colors — `global_colors`
+
+**Format:** An ordered array of two-element tuples `[id, record]`. The array order
+determines display order in the Divi color palette.
+
+```jsonc
+[
+  [
+    "gcid-primary-color",         // Element 0: the color ID string (gcid-* prefix)
+    {
+      "color":  "#2176ff",        // Hex or $variable(...)$ reference token (§3)
+      "status": "active",         // "active" | "inactive"
+      "label":  "Primary Color"   // Display name
+    }
+  ],
+  [ "gcid-s0kqi6v11w", { "color": "#000000", "status": "active", "label": "Black" } ],
+  ...
+]
+```
+
+**Notes:**
+- The tuple format (array-of-pairs rather than a keyed object) preserves insertion order
+  in all JSON parsers, including those that do not guarantee object key order.
+- The `color` field holds the value, not `value`. This differs from non-color variables
+  (§15.4) which use `value`.
+- The system colors (`gcid-primary-color`, `gcid-secondary-color`, `gcid-heading-color`,
+  `gcid-body-color`) are included in this array alongside user-created colors.
+- Colors that reference other colors use the `$variable(...)$` token (§3) in the `color`
+  field, e.g.: `"$variable({\"type\":\"color\",\"value\":{\"name\":\"gcid-y43rzvjcdl\",\"settings\":{\"opacity\":90}}})$"`
+
+### 15.4 Global Variables — `global_variables`
+
+**Format:** A flat array of variable objects. Each object represents one non-color
+variable regardless of type.
+
+```jsonc
+[
+  {
+    "id":           "gvid-3ycvkww27b",        // gvid-* prefixed ID
+    "label":        "Button Top & Bottom Padding",
+    "value":        "16px",                    // CSS value, font name, URL, string, etc.
+    "order":        "",                        // Display order integer or "" if unset
+    "status":       "archived",               // "active" | "archived" | "inactive"
+    "lastUpdated":  "2025-09-24T12:45:51.649Z", // ISO 8601 timestamp
+    "variableType": "numbers",                 // Primary type discriminator
+    "type":         "numbers"                  // Duplicate of variableType (always same value)
+  },
+  ...
+]
+```
+
+**Variable type values** (`variableType` / `type`):
+
+| Value | Meaning |
+|---|---|
+| `"numbers"` | CSS dimension or number (px, em, rem, %, clamp(), calc(), etc.) |
+| `"fonts"` | Font family name string |
+| `"strings"` | Plain text string |
+| `"images"` | URL or `data:image/...;base64,...` data URI |
+| `"links"` | URL string |
+
+**Notes:**
+- `variableType` and `type` always carry the same value. Both are present for
+  compatibility — our importer accepts either (`$item['variableType'] ?? $item['type']`).
+- `order` is a string-encoded integer or an empty string `""` when unordered.
+- `lastUpdated` is present in Divi exports but is not written to the DB by our importer
+  (we do not persist it).
+- Colors are **not** in `global_variables` — they are in `global_colors` (§15.3).
+- System fonts (`--et_global_heading_font`, `--et_global_body_font`) appear in
+  `global_variables` with IDs `"--et_global_heading_font"` and `"--et_global_body_font"`,
+  `variableType: "fonts"`. They are treated as regular entries in the export format even
+  though they have special storage in the DB (§B4).
+
+### 15.5 Presets — `presets`
+
+In the Divi native export, the `presets` key holds the same nested structure as the
+`et_divi_builder_global_presets_d5` wp_options value described in §B5. There is no
+structural transformation — it is the raw DB value embedded directly.
+
+```jsonc
+{
+  "module": {
+    "divi/button": {
+      "default": "<preset-id>",
+      "items": {
+        "<preset-id>": { /* element-preset-record per §B5.2 */ }
+      }
+    }
+  },
+  "group": {
+    "divi/background": {
+      "default": "<preset-id>",
+      "items": {
+        "<preset-id>": { /* group-preset-record per §B5.3 */ }
+      }
+    }
+  }
+}
+```
+
+### 15.6 Layout / Page Data — `data`
+
+When `context` is `"et_builder_layouts"`, the `data` key holds a dict of post records
+keyed by post ID (as a string):
+
+```jsonc
+{
+  "<post-id>": {
+    "post_title":   "My Layout",
+    "post_name":    "my-layout",
+    "post_status":  "publish",
+    "post_type":    "et_pb_layout",
+    "post_date":    "2025-10-01 12:00:00",
+    "post_content": "<!-- wp:divi/section ... -->",
+    "post_meta":    { "_et_pb_use_builder": "on", ... },
+    "terms":        []
+  }
+}
+```
+
+### 15.7 ABNF Grammar — Divi Native Export JSON
+
+```abnf
+; ─────────────────────────────────────────────────────────────────────────────
+; §D: DIVI NATIVE EXPORT JSON FORMAT
+; Describes the top-level shape of files produced by Divi's own export UI.
+; ─────────────────────────────────────────────────────────────────────────────
+
+divi-export-file        = "{" ws
+                            DQUOTE "context"          DQUOTE ":" ws divi-context          "," ws
+                            DQUOTE "data"             DQUOTE ":" ws ( divi-data-dict / empty-array ) "," ws
+                            DQUOTE "presets"          DQUOTE ":" ws ( presets-option / empty-array ) "," ws
+                            DQUOTE "global_colors"    DQUOTE ":" ws divi-global-colors    "," ws
+                            DQUOTE "global_variables" DQUOTE ":" ws divi-global-variables "," ws
+                            DQUOTE "canvases"         DQUOTE ":" ws json-array            "," ws
+                            DQUOTE "images"           DQUOTE ":" ws json-array            "," ws
+                            DQUOTE "thumbnails"       DQUOTE ":" ws json-array
+                          ws "}"
+
+divi-context            = DQUOTE ( "et_builder"
+                                 / "et_builder_layouts"
+                                 / "et_divi_mods"
+                                 / "et_template" ) DQUOTE
+
+; global_colors: ordered array of [id, record] tuples
+divi-global-colors      = "[" ws
+                            [ divi-color-pair *( "," ws divi-color-pair ) ]
+                          ws "]"
+
+divi-color-pair         = "[" ws
+                            DQUOTE color-var-id DQUOTE "," ws
+                            divi-color-record
+                          ws "]"
+
+divi-color-record       = "{" ws
+                            DQUOTE "color"  DQUOTE ":" ws color-value  "," ws
+                            DQUOTE "status" DQUOTE ":" ws var-status   "," ws
+                            DQUOTE "label"  DQUOTE ":" ws json-string
+                          ws "}"
+
+; global_variables: flat array of variable objects (all types except colors)
+divi-global-variables   = "[" ws
+                            [ divi-var-obj *( "," ws divi-var-obj ) ]
+                          ws "]"
+
+divi-var-obj            = "{" ws
+                            DQUOTE "id"           DQUOTE ":" ws DQUOTE content-var-id DQUOTE "," ws
+                            DQUOTE "label"        DQUOTE ":" ws json-string                   "," ws
+                            DQUOTE "value"        DQUOTE ":" ws json-string                   "," ws
+                            DQUOTE "order"        DQUOTE ":" ws divi-order                    "," ws
+                            DQUOTE "status"       DQUOTE ":" ws var-status                    "," ws
+                            DQUOTE "lastUpdated"  DQUOTE ":" ws json-string                   "," ws
+                            DQUOTE "variableType" DQUOTE ":" ws divi-var-type                 "," ws
+                            DQUOTE "type"         DQUOTE ":" ws divi-var-type
+                          ws "}"
+
+; Note: variableType and type always carry the same value.
+; Note: system font entries use IDs "--et_global_heading_font" / "--et_global_body_font"
+;       which do not match content-var-id pattern; parser must accept any non-empty string.
+
+divi-var-type           = DQUOTE ( "numbers" / "fonts" / "images"
+                                 / "strings" / "links" ) DQUOTE
+
+; order is either a quoted integer string or an empty string
+divi-order              = DQUOTE *DIGIT DQUOTE
+
+; Layout/page data dict (context = et_builder_layouts)
+divi-data-dict          = "{" ws
+                            [ divi-post-entry *( "," ws divi-post-entry ) ]
+                          ws "}"
+
+divi-post-entry         = DQUOTE 1*DIGIT DQUOTE ":" ws divi-post-record
+
+divi-post-record        = "{" ws
+                            DQUOTE "post_title"   DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_name"    DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_status"  DQUOTE ":" ws post-status "," ws
+                            DQUOTE "post_type"    DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_date"    DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_content" DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_meta"    DQUOTE ":" ws json-object "," ws
+                            DQUOTE "terms"        DQUOTE ":" ws json-array
+                          ws "}"
+
+empty-array             = "[" ws "]"
+```
+
+---
+
+## 16. D5 Design System Helper Plugin Export JSON Format
+
+This section documents the JSON format produced by this plugin's own export functions
+(`JsonExporter.php`). Unlike Divi's omnibus format (§15), the plugin exports **one data
+type per file**. Each file has a type-specific top-level envelope key plus a `_meta`
+block added by the plugin.
+
+**Confirmed against:** `JsonExporter.php` `build_export_data()` and all type builder
+methods; `SimpleImporter.php` import handlers; `VarsRepository.php` `get_raw()`.
+
+### 16.1 Design Principles
+
+| Principle | Detail |
+|---|---|
+| One type per file | Each export covers exactly one of: vars, presets, layouts, pages, theme_customizer, builder_templates |
+| DB-faithful | The envelope value is the raw wp_options array as stored, with no structural transformation (except layouts/pages which are re-shaped as a posts array) |
+| Divi-compatible | The top-level envelope keys match Divi's own option key names (`et_divi_global_variables`, `et_divi_builder_global_presets_d5`, etc.), making files importable by Divi's native importer where Divi supports it |
+| Plugin-identified | Every file includes a `_meta` block (§16.7). Divi ignores unknown top-level keys, so `_meta` is safe and does not break native import |
+| Pretty-printed | `JSON_PRETTY_PRINT \| JSON_UNESCAPED_UNICODE \| JSON_UNESCAPED_SLASHES` — human-readable, no escaped slashes or Unicode escapes |
+
+### 16.2 Variables Export (`type = "vars"`)
+
+Envelope key: `et_divi_global_variables`
+
+```jsonc
+{
+  "et_divi_global_variables": {
+    "numbers": {
+      "gvid-xxxxxxxx": {
+        "id":     "gvid-xxxxxxxx",
+        "label":  "Button Padding",
+        "value":  "16px",
+        "status": "active"
+      }
+    },
+    "fonts":   { "gvid-xxxxxxxx": { "id": "...", "label": "...", "value": "...", "status": "..." } },
+    "images":  { ... },
+    "strings": { ... },
+    "links":   { ... }
+  },
+  "_meta": { /* §16.7 */ }
+}
+```
+
+**Structure:** Nested object `{ type → { id → record } }`. This is the raw value of
+`et_divi_global_variables` from the database with no transformation.
+
+**Variable record fields:**
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | `gvid-*` prefixed ID |
+| `label` | string | Display name |
+| `value` | string | CSS value, font name, URL, or plain string |
+| `status` | string | `"active"` \| `"archived"` \| `"inactive"` |
+
+**What is NOT included:**
+- Colors — stored separately in `et_divi[et_global_data][global_colors]`; colors do not
+  appear in `et_divi_global_variables` and are not in this export file
+- System fonts (`--et_global_heading_font` / `--et_global_body_font`) — stored in
+  `et_divi` top-level keys, not in `et_divi_global_variables`
+- System colors (`gcid-primary-color`, etc.) — stored as plain hex in `et_divi` top-level
+  keys
+
+**Importer behaviour:** `SimpleImporter::import_json_vars()`. Reads
+`et_divi_global_variables`, merges additively into the DB. Does not touch colors or
+system fonts/colors.
+
+### 16.3 Presets Export (`type = "presets"`)
+
+Envelope key: `et_divi_builder_global_presets_d5`
+
+```jsonc
+{
+  "et_divi_builder_global_presets_d5": {
+    "module": {
+      "divi/button": {
+        "default": "<preset-id>",
+        "items": {
+          "<preset-id>": { /* element-preset-record per §B5.2 */ }
+        }
+      }
+    },
+    "group": {
+      "divi/background": {
+        "default": "<preset-id>",
+        "items": {
+          "<preset-id>": { /* group-preset-record per §B5.3 */ }
+        }
+      }
+    }
+  },
+  "_meta": { /* §16.7 */ }
+}
+```
+
+**Structure:** Raw `et_divi_builder_global_presets_d5` value from the database. Identical
+to the `presets` key in a Divi native export (§15.5).
+
+### 16.4 Layouts / Pages Export (`type = "layouts"` or `"pages"`)
+
+Envelope key: `posts`
+
+```jsonc
+{
+  "posts": [
+    {
+      "ID":          12345,
+      "post_title":  "My Layout",
+      "post_name":   "my-layout",
+      "post_status": "publish",
+      "post_type":   "et_pb_layout",
+      "post_date":   "2025-10-01 12:00:00",
+      "menu_order":  0,
+      "post_parent": 0,
+      "post_meta":   { "_et_pb_use_builder": "on", ... },
+      "terms":       []
+    }
+  ],
+  "_meta": { /* §16.7 */ }
+}
+```
+
+**Note:** `post_content` is **not included** in layouts/pages exports (unlike Divi's
+native format). It is excluded because of size concerns and because `post_content`
+contains block markup that may hold DSO references which should be managed separately.
+
+### 16.5 Theme Customizer Export (`type = "theme_customizer"`)
+
+Envelope key: `theme_mods_Divi`
+
+```jsonc
+{
+  "theme_mods_Divi": {
+    "accent_color":           "#2176ff",
+    "secondary_accent_color": "#ff5700",
+    "heading_font":           "Inter",
+    "body_font":              "Inter",
+    ...
+  },
+  "_meta": { /* §16.7 */ }
+}
+```
+
+**Structure:** Raw `theme_mods_Divi` value from the database (flat key → value map).
+
+### 16.6 Builder Templates Export (`type = "builder_templates"`)
+
+Envelope keys: `et_template`, `layouts`
+
+```jsonc
+{
+  "et_template": [
+    {
+      "post_title":  "My Template",
+      "post_status": "publish",
+      "post_type":   "et_template",
+      "post_meta":   {
+        "_et_header_layout_id": "100",
+        "_et_body_layout_id":   "101",
+        "_et_footer_layout_id": "102",
+        "_et_use_on":           "a:1:{i:0;s:2:\"on\";}",
+        "_et_enabled":          "1"
+      }
+    }
+  ],
+  "layouts": {
+    "100": {
+      "post_title":   "Header Canvas",
+      "post_type":    "et_header_layout",
+      "post_content": "<!-- wp:divi/section ... -->",
+      ...
+    },
+    "101": { ... },
+    "102": { ... }
+  },
+  "_meta": { /* §16.7 */ }
+}
+```
+
+**Note:** Unlike layouts/pages (§16.4), builder templates **do include** `post_content`
+because Divi needs the full block markup to restore templates via native import.
+
+### 16.7 The `_meta` Block
+
+Every plugin export file includes a `_meta` top-level key. It is a D5DSH addition;
+Divi's native importer ignores unknown top-level keys, so its presence does not affect
+Divi compatibility.
+
+```jsonc
+"_meta": {
+  "exported_by": "D5 Design System Helper",
+  "version":     "0.1.0",
+  "type":        "vars",
+  "exported_at": "2026-03-30T12:00:00+00:00",
+  "site_url":    "https://example.com"
+}
+```
+
+| Field | Type | Notes |
+|---|---|---|
+| `exported_by` | string | Always `"D5 Design System Helper"` |
+| `version` | string | Plugin version at time of export (`D5DSH_VERSION` constant) |
+| `type` | string | One of: `vars`, `presets`, `layouts`, `pages`, `theme_customizer`, `builder_templates` |
+| `exported_at` | string | ISO 8601 timestamp (`gmdate('c')`) in UTC |
+| `site_url` | string | WordPress site URL (`get_site_url()`) |
+
+**Importer use:** The `_meta.type` field is used by `SimpleImporter` as a fallback type
+detector when the top-level envelope key is ambiguous.
+
+### 16.8 Format Comparison: Plugin vs. Divi Native (Variables)
+
+| Aspect | Divi native (§15) | Plugin format (§16) |
+|---|---|---|
+| File scope | Omnibus — all types in one file | One type per file |
+| Colors | `global_colors` array of tuples | Not included (separate DB path) |
+| Non-color vars | `global_variables` flat array | `et_divi_global_variables` nested dict |
+| Var record fields | `id`, `label`, `value`, `order`, `status`, `lastUpdated`, `variableType`, `type` | `id`, `label`, `value`, `status` |
+| Order field | Present as string-encoded int or `""` | Not present (DB insertion order) |
+| `lastUpdated` | Present (ISO 8601) | Not present |
+| Color value field | `color` | N/A (colors not in vars export) |
+| Presets | Embedded in same file under `presets` | Separate file, `et_divi_builder_global_presets_d5` |
+| Plugin metadata | Not present | `_meta` block |
+| System fonts | Included as `global_variables` entries | Not included (separate DB path) |
+| Import handler | `import_json_et_native()` | `import_json_vars()` |
+
+### 16.9 Type Detection
+
+`SimpleImporter` detects which format and type a JSON file represents by inspecting
+top-level keys in this priority order:
+
+1. `et_divi_global_variables` → plugin vars format
+2. `et_divi_builder_global_presets_d5` → plugin presets format
+3. `posts` → plugin layouts/pages format
+4. `theme_mods_Divi` → plugin theme customizer format
+5. `et_template` → plugin builder templates format
+6. `context` (value `"et_builder"`, `"et_builder_layouts"`, etc.) → Divi native format
+7. `global_variables` or `global_colors` present → Divi native format (fallback)
+8. `$schema` containing `"designtokens.org"` or top-level token groups → DTCG format (§17)
+9. `_meta.type` → plugin format, type from `_meta` value
+
+### 16.10 ABNF Grammar — Plugin Export JSON
+
+```abnf
+; ─────────────────────────────────────────────────────────────────────────────
+; §E: D5DSH PLUGIN EXPORT JSON FORMAT
+; One rule per export type; all share the _meta block.
+; ─────────────────────────────────────────────────────────────────────────────
+
+; ── §E1: Variables export ─────────────────────────────────────────────────────
+
+plugin-vars-export      = "{" ws
+                            DQUOTE "et_divi_global_variables" DQUOTE ":" ws vars-option "," ws
+                            DQUOTE "_meta"                    DQUOTE ":" ws plugin-meta
+                          ws "}"
+
+; vars-option per §B1
+
+; ── §E2: Presets export ───────────────────────────────────────────────────────
+
+plugin-presets-export   = "{" ws
+                            DQUOTE "et_divi_builder_global_presets_d5" DQUOTE ":" ws presets-option "," ws
+                            DQUOTE "_meta"                             DQUOTE ":" ws plugin-meta
+                          ws "}"
+
+; presets-option per §B5
+
+; ── §E3: Layouts / Pages export ───────────────────────────────────────────────
+
+plugin-layouts-export   = "{" ws
+                            DQUOTE "posts"  DQUOTE ":" ws plugin-posts-array "," ws
+                            DQUOTE "_meta"  DQUOTE ":" ws plugin-meta
+                          ws "}"
+
+plugin-posts-array      = "[" ws
+                            [ plugin-post-record *( "," ws plugin-post-record ) ]
+                          ws "]"
+
+plugin-post-record      = "{" ws
+                            DQUOTE "ID"          DQUOTE ":" ws json-number "," ws
+                            DQUOTE "post_title"  DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_name"   DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_status" DQUOTE ":" ws post-status "," ws
+                            DQUOTE "post_type"   DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_date"   DQUOTE ":" ws json-string "," ws
+                            DQUOTE "menu_order"  DQUOTE ":" ws json-number "," ws
+                            DQUOTE "post_parent" DQUOTE ":" ws json-number "," ws
+                            DQUOTE "post_meta"   DQUOTE ":" ws json-object "," ws
+                            DQUOTE "terms"       DQUOTE ":" ws json-array
+                          ws "}"
+                          ; NOTE: post_content is intentionally absent in layouts/pages exports
+
+; ── §E4: Theme Customizer export ──────────────────────────────────────────────
+
+plugin-customizer-export = "{" ws
+                             DQUOTE "theme_mods_Divi" DQUOTE ":" ws theme-mods-option "," ws
+                             DQUOTE "_meta"           DQUOTE ":" ws plugin-meta
+                           ws "}"
+
+; theme-mods-option per §B6
+
+; ── §E5: Builder Templates export ─────────────────────────────────────────────
+
+plugin-templates-export = "{" ws
+                            DQUOTE "et_template" DQUOTE ":" ws plugin-templates-array "," ws
+                            DQUOTE "layouts"     DQUOTE ":" ws plugin-layouts-dict     "," ws
+                            DQUOTE "_meta"       DQUOTE ":" ws plugin-meta
+                          ws "}"
+
+plugin-templates-array  = "[" ws
+                            [ plugin-template-record *( "," ws plugin-template-record ) ]
+                          ws "]"
+
+plugin-template-record  = "{" ws
+                            DQUOTE "post_title"  DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_status" DQUOTE ":" ws post-status "," ws
+                            DQUOTE "post_type"   DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_meta"   DQUOTE ":" ws json-object
+                          ws "}"
+
+; layouts dict: keyed by post ID string, value includes post_content (block markup)
+plugin-layouts-dict     = "{" ws
+                            [ plugin-canvas-entry *( "," ws plugin-canvas-entry ) ]
+                          ws "}"
+
+plugin-canvas-entry     = DQUOTE 1*DIGIT DQUOTE ":" ws plugin-canvas-record
+
+plugin-canvas-record    = "{" ws
+                            DQUOTE "post_title"   DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_type"    DQUOTE ":" ws json-string "," ws
+                            DQUOTE "post_content" DQUOTE ":" ws json-string "," ws
+                            [ json-members ]
+                          ws "}"
+
+; ── §E6: _meta block ──────────────────────────────────────────────────────────
+
+plugin-meta             = "{" ws
+                            DQUOTE "exported_by" DQUOTE ":" ws DQUOTE "D5 Design System Helper" DQUOTE "," ws
+                            DQUOTE "version"     DQUOTE ":" ws json-string "," ws
+                            DQUOTE "type"        DQUOTE ":" ws plugin-export-type "," ws
+                            DQUOTE "exported_at" DQUOTE ":" ws json-string "," ws
+                            DQUOTE "site_url"    DQUOTE ":" ws json-string
+                          ws "}"
+
+plugin-export-type      = DQUOTE ( "vars" / "presets" / "layouts" / "pages"
+                                 / "theme_customizer" / "builder_templates" ) DQUOTE
+```
+
+---
+
+## 17. DTCG Export JSON Format (W3C Design Tokens)
+
+This section documents the W3C Design Tokens Community Group (DTCG) format produced by
+`DtcgExporter.php`. This is an interoperability format — it allows Divi design tokens to
+be consumed by third-party design tools (Figma, Style Dictionary, etc.) that support the
+DTCG specification.
+
+**Specification:** W3C DTCG format, version 2025.10
+(`https://tr.designtokens.org/format/`)
+
+**Confirmed against:** `DtcgExporter.php` `build_export_data()`.
+
+### 17.1 Top-Level Envelope
+
+```jsonc
+{
+  "$schema":    "https://tr.designtokens.org/format/",
+  "color":      { /* color token group */ },
+  "dimension":  { /* dimension token group (numbers with CSS units) */ },
+  "number":     { /* number token group (bare numeric values) */ },
+  "fontFamily": { /* font family token group */ },
+  "string":     { /* string token group */ },
+  "_meta":      { /* DTCG meta block (§17.4) */ }
+}
+```
+
+Only groups that have at least one entry are included. An export with no font variables
+will omit the `fontFamily` key.
+
+### 17.2 Type Mapping
+
+| Divi type | DTCG `$type` group key | Condition |
+|---|---|---|
+| `colors` | `color` | Always |
+| `numbers` | `dimension` | Value ends with a CSS unit (px, rem, em, %, vh, vw, etc.) |
+| `numbers` | `number` | Value is a bare numeric string (no unit) |
+| `fonts` | `fontFamily` | Always |
+| `strings` | `string` | Always |
+| `images` | *(omitted)* | No DTCG equivalent |
+| `links` | *(omitted)* | No DTCG equivalent |
+
+### 17.3 Token Entry Structure
+
+Each token is an object keyed by the Divi variable ID within its type group:
+
+```jsonc
+"color": {
+  "gcid-primary-color": {
+    "$type":        "color",
+    "$value":       "#2176ff",
+    "$description": "Primary Color",
+    "extensions": {
+      "d5dsh:id":     "gcid-primary-color",
+      "d5dsh:status": "active",
+      "d5dsh:system": false
+    }
+  },
+  "gcid-s0kqi6v11w": {
+    "$type":        "color",
+    "$value":       "#000000",
+    "$description": "Black",
+    "extensions": {
+      "d5dsh:id":     "gcid-s0kqi6v11w",
+      "d5dsh:status": "active",
+      "d5dsh:system": false
+    }
+  }
+}
+```
+
+**Standard DTCG fields:**
+
+| Field | DTCG spec | Value source |
+|---|---|---|
+| `$type` | Required | DTCG type string from §17.2 mapping |
+| `$value` | Required | Divi variable `value` field (colors: resolved hex, not `$variable(...)$` reference) |
+| `$description` | Optional | Divi variable `label` field |
+
+**Plugin extension fields** (in `extensions` object, per DTCG §9):
+
+| Field | Type | Notes |
+|---|---|---|
+| `d5dsh:id` | string | Original Divi variable ID (`gcid-*` or `gvid-*`) — enables round-trip import |
+| `d5dsh:status` | string | `"active"` \| `"archived"` \| `"inactive"` |
+| `d5dsh:system` | boolean | `true` for Divi built-in variables (id/label read-only) |
+
+**Color value resolution:** For color variables whose Divi `value` is a
+`$variable(...)$` reference token (§3), the exporter resolves one level of aliasing and
+writes the resolved hex value to `$value`. If the reference cannot be resolved (target
+not found), the raw token string is used as-is. This means DTCG color values are always
+concrete hex values, not aliases — DTCG aliasing (`{color.primary}`) is not used.
+
+### 17.4 DTCG `_meta` Block
+
+```jsonc
+"_meta": {
+  "exported_by": "D5 Design System Helper",
+  "version":     "0.1.0",
+  "exported_at": "2026-03-30T12:00:00+00:00",
+  "site_url":    "https://example.com",
+  "dtcg_schema": "2025.10"
+}
+```
+
+| Field | Notes |
+|---|---|
+| `exported_by` | Always `"D5 Design System Helper"` |
+| `version` | Plugin version at export time |
+| `exported_at` | ISO 8601 UTC timestamp |
+| `site_url` | WordPress site URL |
+| `dtcg_schema` | DTCG spec version (`"2025.10"`) |
+
+### 17.5 Import Round-Trip
+
+`SimpleImporter` can import DTCG files (detected by `$schema` containing
+`"designtokens.org"`). The importer reads the following fields from each token:
+
+| DTCG field | Maps to |
+|---|---|
+| `extensions.d5dsh:id` | Variable ID (preferred); falls back to token key if absent |
+| `$description` | Variable label |
+| `$value` | Variable value |
+| `extensions.d5dsh:status` | Variable status |
+| Token group key | Divi variable type (via reverse of §17.2 type map) |
+
+**Reverse type map (import):**
+
+| DTCG group key | Divi type |
+|---|---|
+| `color` | `colors` |
+| `dimension` | `numbers` |
+| `number` | `numbers` |
+| `fontFamily` | `fonts` |
+| `string` | `strings` |
+
+### 17.6 ABNF Grammar — DTCG Export JSON
+
+```abnf
+; ─────────────────────────────────────────────────────────────────────────────
+; §F: DTCG EXPORT JSON FORMAT
+; W3C Design Tokens Community Group format, DTCG 2025.10.
+; ─────────────────────────────────────────────────────────────────────────────
+
+dtcg-export-file        = "{" ws
+                            DQUOTE "$schema"    DQUOTE ":" ws DQUOTE dtcg-schema-url DQUOTE
+                            [ "," ws DQUOTE "color"      DQUOTE ":" ws dtcg-token-group ]
+                            [ "," ws DQUOTE "dimension"  DQUOTE ":" ws dtcg-token-group ]
+                            [ "," ws DQUOTE "number"     DQUOTE ":" ws dtcg-token-group ]
+                            [ "," ws DQUOTE "fontFamily" DQUOTE ":" ws dtcg-token-group ]
+                            [ "," ws DQUOTE "string"     DQUOTE ":" ws dtcg-token-group ]
+                            "," ws DQUOTE "_meta"        DQUOTE ":" ws dtcg-meta
+                          ws "}"
+
+dtcg-schema-url         = "https://tr.designtokens.org/format/"
+
+dtcg-token-group        = "{" ws
+                            [ dtcg-token-entry *( "," ws dtcg-token-entry ) ]
+                          ws "}"
+
+dtcg-token-entry        = DQUOTE var-id DQUOTE ":" ws dtcg-token-obj
+
+dtcg-token-obj          = "{" ws
+                            DQUOTE "$type"        DQUOTE ":" ws DQUOTE dtcg-type      DQUOTE "," ws
+                            DQUOTE "$value"       DQUOTE ":" ws json-string                       "," ws
+                            DQUOTE "$description" DQUOTE ":" ws json-string                       "," ws
+                            DQUOTE "extensions"   DQUOTE ":" ws dtcg-extensions
+                          ws "}"
+
+dtcg-type               = "color" / "dimension" / "number" / "fontFamily" / "string"
+
+dtcg-extensions         = "{" ws
+                            DQUOTE "d5dsh:id"     DQUOTE ":" ws DQUOTE var-id        DQUOTE "," ws
+                            DQUOTE "d5dsh:status" DQUOTE ":" ws var-status                        "," ws
+                            DQUOTE "d5dsh:system" DQUOTE ":" ws ( "true" / "false" )
+                          ws "}"
+
+dtcg-meta               = "{" ws
+                            DQUOTE "exported_by"  DQUOTE ":" ws json-string "," ws
+                            DQUOTE "version"      DQUOTE ":" ws json-string "," ws
+                            DQUOTE "exported_at"  DQUOTE ":" ws json-string "," ws
+                            DQUOTE "site_url"     DQUOTE ":" ws json-string "," ws
+                            DQUOTE "dtcg_schema"  DQUOTE ":" ws json-string
+                          ws "}"
+```
+
+### 17.7 Format Summary Table
+
+| Aspect | Divi native (§15) | Plugin JSON (§16) | DTCG (§17) |
+|---|---|---|---|
+| Consumer | Divi import UI | Our plugin import + Divi import | Design tools (Figma, Style Dictionary), our plugin |
+| Scope | All types in one file | One type per file | Variables only (colors + numbers + fonts + strings) |
+| Color representation | `global_colors` tuple array | Not in vars export | `color` group with resolved hex values |
+| Number representation | `global_variables` flat array | `et_divi_global_variables` nested dict | `dimension` or `number` group |
+| Variable ID preserved | Yes (`id` field) | Yes (`id` field) | Via `extensions.d5dsh:id` |
+| Status preserved | Yes (`status` field) | Yes (`status` field) | Via `extensions.d5dsh:status` |
+| `lastUpdated` | Yes | No | No |
+| `order` | Yes (string int or `""`) | No | No |
+| System variable flag | No | No | Via `extensions.d5dsh:system` |
+| Color aliases | Stored as `$variable(...)$` token | N/A | Resolved to concrete hex on export |
+| Images / links | Yes (in `global_variables`) | Yes (in `et_divi_global_variables`) | Omitted (no DTCG equivalent) |
+| Plugin metadata | No | `_meta` block | `_meta` block + `$schema` + `dtcg_schema` version |

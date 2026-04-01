@@ -2,6 +2,8 @@
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.1.1.2 | 2026-03-31 | Import security hardening (CSS value sanitization, wp_unslash, multiline fix, zip traversal guard); admin.js DOM API conversions; security report risk reclassifications |
+| 0.1.1.1 | 2026-03-31 | Security hardening; debug/error-trapping system |
 | 0.1.0 | 2026-03-27 | Initial public release |
 
 ---
@@ -678,8 +680,21 @@ Controls which variable types are grouped together on the same worksheet when ex
 
 | Setting | What it does |
 |---|---|
-| Debug mode | Shows detailed error information, writes to `d5dsh-logs/debug.log`, and displays a debug banner at the top of the page. Triggers a page reload when saved. |
+| Debug mode | Enables detailed error logging, displays a debug banner at the top of the page, and shows a Debug Log viewer at the bottom of the Advanced pane. Triggers a page reload when saved. See [Section 24](#24-debug-mode-and-error-logging). |
 | Enable Beta Preview | Shows the Analysis, Style Guide, and Snapshots tabs. Enables Bulk Label Change, Merge Variables, Categories, Import Audit, and blank import template downloads. Applies immediately without a page reload. See [Section 20](#20-beta-features). |
+| Show Security Testing Features | Reveals the Security Testing panel on the Import tab. Intended for developers running structured tests against the import pipeline. See [Section 23](#23-security-testing). |
+
+### Debug Log viewer (visible only when Debug mode is on)
+
+When Debug mode is active, a **Debug Log** panel appears at the bottom of the Advanced settings pane. It shows the live content of `d5dsh-logs/debug.log` without requiring SSH or file system access.
+
+| Button | What it does |
+|---|---|
+| **Refresh** | Fetches and displays the last 200 lines of the log file |
+| **Clear Log** | Zeros out the log file (the file is kept; its content is erased) |
+| **Download** | Saves the current log content as a `.txt` file in your browser |
+
+The viewer also shows the log file size in KB and its server path (`d5dsh-logs/debug.log`) below the toolbar.
 
 ### About
 
@@ -770,6 +785,305 @@ Layout and page `post_content` fields receive `wp_kses_post` sanitization, which
 Click the **?** button in the top-right corner of the plugin to open the built-in help panel. This guide is displayed there, organized by section, with full-text search powered by Fuse.js.
 
 For bugs, feedback, or feature requests, use the **envelope icon** in the top-right corner, or open an issue on the plugin's GitHub repository.
+
+---
+
+## 23. Security Testing
+
+The Security Testing panel is a developer tool for running structured tests against the plugin's import pipeline. It is hidden by default and only becomes visible after enabling **Show Security Testing Features** in Settings → Advanced.
+
+### Purpose
+
+Use this panel to verify that the plugin correctly sanitizes, rejects, or handles unusual or potentially dangerous JSON payloads — for example, when testing fixtures before a security audit, or when reproducing a specific import behaviour.
+
+### How it works
+
+1. Each fixture file is loaded and decoded.
+2. The plugin takes a snapshot of the current database state (`et_divi_global_variables` and `et_divi`).
+3. The fixture is passed through the normal import pipeline as if it had been uploaded via the Import tab.
+4. The sanitization log, import counts, and outcome (PASS / WARN / FAIL) are captured.
+5. The database is immediately restored to its pre-test state.
+6. The next fixture runs with a clean slate.
+
+No fixture permanently alters the database. Each test is fully isolated.
+
+### Running a test
+
+**From the browser (Import tab → Security Testing panel):**
+
+1. Either enter an absolute server path to a directory containing `.json` fixture files, or use the file picker to upload files directly from your computer.
+2. Optionally check **Include per-variable detail** to record every individual variable processed (produces larger reports).
+3. Click **Run Security Tests**. Results appear inline when the run completes.
+4. Click **Download Report (JSON)** to save the full structured report. The report is also written automatically to `wp-content/uploads/d5dsh-logs/`.
+
+**From WP-CLI:**
+
+```
+wp d5dsh security-test --dir=/path/to/fixtures/ [--out=/path/to/results/] [--verbose]
+```
+
+Both the browser panel and the WP-CLI command use the same engine and produce the same structured report format.
+
+### Results table
+
+| Column | Meaning |
+|---|---|
+| File | Fixture filename |
+| Status | **PASS** — import succeeded; **WARN** — file type not recognised; **FAIL** — import returned an error or threw an exception |
+| Type | Auto-detected import type (e.g. `vars`, `presets`, `et_native`) |
+| New | Number of new records created |
+| Updated | Number of existing records updated |
+| Sanitized | Number of fields modified by sanitization |
+| Details | Error or status message from the importer |
+
+If any fields were sanitized, a collapsible **Sanitization log** row appears below the fixture row, showing context, field name, original value (truncated to 120 characters), and the cleaned value.
+
+### Access control
+
+The panel requires the `manage_options` capability (Administrator). The AJAX endpoint additionally requires the **Show Security Testing Features** setting to be active — even if a user has the capability, the endpoint refuses requests when the setting is off.
+
+---
+
+## 24. Debug Mode and Error Logging
+
+Debug mode is an optional developer feature. It is **off by default** and is intended for troubleshooting — not for production use on a live site.
+
+### Enabling debug mode
+
+Open **Settings → Advanced** and check **Debug mode**, then click **Save Settings**. The page reloads automatically to apply the change. When active, a yellow banner reading **DEBUG MODE ACTIVE** appears at the top of the plugin page.
+
+To turn it off, uncheck **Debug mode**, save, and reload.
+
+### What debug mode activates
+
+**1. File-based server logging**
+
+All plugin operations write timestamped entries to:
+
+```
+wp-content/uploads/d5dsh-logs/debug.log
+```
+
+The log directory is created automatically on first use. An `.htaccess` file and a blank `index.php` are written to the directory to block direct browser access. Log entries are never publicly readable.
+
+The log rotates automatically: when `debug.log` reaches 2 MB, it is renamed to `debug.log.YYYYMMDD-HHmmss.bak` and a new `debug.log` is started.
+
+**2. Detailed AJAX error responses**
+
+When debug mode is on, AJAX error responses include a `debug` object in the JSON body alongside the user-facing message:
+
+```json
+{
+  "success": false,
+  "data": {
+    "message": "Audit failed.",
+    "debug": {
+      "context":   "AuditEngine::ajax_run",
+      "exception": "RuntimeException",
+      "error":     "Unexpected null value at line 42",
+      "file":      "/var/www/html/wp-content/.../AuditEngine.php",
+      "line":      42,
+      "trace":     ["#0 ...", "#1 ...", "..."]
+    }
+  }
+}
+```
+
+When debug mode is off, the same error returns only `{ "message": "Audit failed." }` — no internal details are exposed.
+
+**3. Frontend JavaScript error capture**
+
+Uncaught JavaScript errors and unhandled promise rejections are automatically sent to the server log. This happens silently in the background using the browser's `sendBeacon` API (with an `XMLHttpRequest` fallback). No error is shown to the user. This makes it possible to catch JS errors that occur during normal use without having the browser console open.
+
+**4. In-page Debug Log viewer**
+
+A Debug Log panel appears at the bottom of Settings → Advanced. See [Section 19](#19-settings) for controls.
+
+### Log entry format
+
+Every log entry follows this format:
+
+```
+[YYYY-MM-DD HH:MM:SS UTC] [LEVEL][context] message
+```
+
+Multi-line messages (exception stack traces) are indented with four spaces per continuation line.
+
+| Level | When it appears |
+|---|---|
+| `INFO` | General operation events (e.g. settings saved, import completed) |
+| `ERROR` | Handled errors that did not throw an exception |
+| `EXCEPTION` | Caught PHP exceptions with class, message, file, line, and stack trace |
+| `[JS:error]` | Uncaught JavaScript errors from the browser, forwarded by the frontend capture layer |
+| `[JS:unhandledrejection]` | Unhandled JavaScript promise rejections from the browser |
+
+### Security considerations
+
+- Only users with the `manage_options` capability (WordPress Administrator) can read or clear the log via the plugin UI.
+- The log directory is protected by `.htaccess` and cannot be fetched over HTTP.
+- When debug mode is off, no log writes occur and no internal error detail is ever returned to the browser.
+- Do not leave debug mode on permanently on a public-facing site. The log may accumulate sensitive path and error information.
+
+---
+
+## 25. Error Reference
+
+This section describes every error or warning that can appear in the debug log or in AJAX error responses. Use it to understand what went wrong and how to resolve it.
+
+### PHP / server-side errors
+
+The following contexts and messages appear in `debug.log` entries with level `ERROR` or `EXCEPTION`.
+
+---
+
+#### Audit
+
+**Context:** `AuditEngine::ajax_run` / `AuditEngine::ajax_run_full`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Unexpected error in run()` | An exception was thrown inside the Simple Audit engine | Check the full stack trace in the log. Common causes: corrupted preset data in the database, null returns from `PresetsRepository::get_raw()` |
+| `Audit failed.` | Generic fallback when `run()` or `run_full()` throws | The `debug.error` field in the AJAX response contains the specific message |
+| `Audit XLSX export failed.` | `AuditExporter` threw while building the spreadsheet | Usually a PhpSpreadsheet error — check available disk space and PHP memory limit |
+| `Content scan XLSX export failed.` | `ContentScanner` XLSX export threw | Same as above |
+
+---
+
+#### Variables / Label Manager
+
+**Context:** `LabelManager::ajax_load` / `LabelManager::ajax_save`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Failed to load variables.` | `VarsRepository::get_all()` threw | Check whether `et_divi_global_variables` is a valid serialized array in the database |
+| `Failed to save variables.` | `VarsRepository::save_raw()` or `denormalize()` threw | Check DB write permissions; also check that the payload structure is intact |
+| `Variables XLSX export failed.` | `VarsExporter::stream_download()` threw | Disk space, PHP memory, or PhpSpreadsheet error |
+
+---
+
+#### Presets Manager
+
+**Context:** `PresetsManager::ajax_load` / `PresetsManager::ajax_save`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Failed to load presets.` | `PresetsRepository::get_raw()` threw | Check `et_divi_builder_global_presets_d5` for database corruption |
+| `Failed to save presets.` | `PresetsRepository::save_raw()` threw | DB write permissions or serialization error |
+| `Presets XLSX export failed.` | `PresetsExporter::stream_download()` threw | Disk space, PHP memory, or PhpSpreadsheet error |
+
+---
+
+#### Content Scanner
+
+**Context:** `ContentScanner::ajax_scan`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Content scan failed.` | An exception was thrown during the content scan | Typically a WP_Query failure or a timeout on sites with many posts; check `max_execution_time` |
+
+---
+
+#### Impact Analyzer
+
+**Context:** `ImpactAnalyzer::ajax_analyze`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Impact analysis failed.` | Exception during the "What Breaks?" lookup | Usually a missing DSO ID in the request or a malformed presets structure |
+
+---
+
+#### Category Manager
+
+**Context:** `CategoryManager::ajax_*`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Failed to load categories.` | `get_option('d5dsh_categories')` returned unexpected data | Check the `d5dsh_categories` option in the database for corruption |
+| `Failed to save categories.` | `update_option` threw or returned false | DB write permissions |
+| `Failed to save category assignments.` | Writing `d5dsh_category_assignments` failed | Same as above |
+
+---
+
+#### Merge Manager
+
+**Context:** `MergeManager::ajax_merge` / `MergeManager::ajax_preview`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Merge preview failed.` | Exception during impact lookup for the merge preview modal | Check that both variable IDs in the request exist |
+| `Merge failed.` | Exception while applying the merge to preset data | Check that the retire variable ID is valid and that `PresetsRepository::save_raw()` is accessible |
+
+---
+
+#### Notes Manager
+
+**Context:** `NotesManager::ajax_save` / `ajax_delete` / `ajax_get_all`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Failed to save note.` | `update_option('d5dsh_notes')` threw | DB write permissions |
+| `Failed to delete note.` | Same as above on delete path | DB write permissions |
+| `Failed to load notes.` | `get_option('d5dsh_notes')` returned unexpected data | Check `d5dsh_notes` option for corruption |
+
+---
+
+#### Style Guide Builder
+
+**Context:** `StyleGuideBuilder::ajax_data`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Failed to build style guide data.` | Exception assembling vars, presets, and category data | Usually a `CategoryManager` or `PresetsRepository` failure — see those sections |
+
+---
+
+#### Settings
+
+**Context:** `AdminPage::ajax_save_settings`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `Settings saved. debug_mode=true/false` | Informational `INFO` entry — not an error | Confirms that settings were persisted successfully |
+
+---
+
+#### Debug log endpoint
+
+**Context:** `AdminPage::ajax_log_js_error`
+
+| Log message / exception | Meaning | Resolution |
+|---|---|---|
+| `[JS:error] <message> at <source>:<line>:<col>` | An uncaught JavaScript runtime error was captured by the frontend and forwarded to the server log | Open the browser console and reproduce the action to see the full stack trace |
+| `[JS:unhandledrejection] <message>` | A JavaScript Promise was rejected without a `.catch()` handler | Usually an async AJAX call that failed; check the Network tab for failed requests |
+
+---
+
+### AJAX / HTTP errors visible in the browser
+
+These appear in the browser's Network tab on the JSON response from a failing AJAX call, and are also logged when debug mode is on.
+
+| HTTP status | `data.message` | Meaning |
+|---|---|---|
+| `400` | `Empty request body.` | The AJAX call sent no body; likely a JS serialization bug |
+| `400` | `Invalid JSON payload.` | The body could not be decoded; check that `Content-Type` is correct |
+| `400` | `No changes to save.` | The save payload was empty after sanitization; check that the frontend submitted at least one change |
+| `403` | `Permission denied.` | The logged-in user does not have the `manage_options` capability, or the nonce verification failed |
+| `403` | `Debug mode is not active.` | A debug-only endpoint (`d5dsh_debug_log_read`, `d5dsh_debug_log_clear`) was called while debug mode was off |
+| `500` | `An unexpected error occurred.` | A PHP exception was thrown and debug mode is off — no detail is exposed. Enable debug mode and retry to see the full error in the log |
+| `500` | `[DEBUG] ExceptionClass: message (in file.php:line)` | Same exception, but debug mode is on — the class, message, file, and line are included inline |
+
+---
+
+### Log file issues
+
+| Symptom | Likely cause | Resolution |
+|---|---|---|
+| No `debug.log` file is created | The `wp-content/uploads/` directory is not writable by the web server | Check directory permissions; `755` is typical |
+| Log file stops growing at 2 MB | Normal rotation behavior | The old log was renamed to `debug.log.YYYYMMDD-HHmmss.bak`; both files are in `d5dsh-logs/` |
+| Log viewer shows "Click Refresh to load log…" | Refresh has not been clicked yet — the viewer does not auto-load | Click **Refresh** |
+| Log viewer shows an empty pane after Refresh | The log file exists but is empty, or was just cleared | This is normal after **Clear Log** |
+| Log viewer reports "Debug mode is not active." | Settings were saved with debug off but the page has not reloaded | Reload the WP Admin page |
 
 ---
 

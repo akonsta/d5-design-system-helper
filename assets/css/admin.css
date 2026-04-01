@@ -30,6 +30,47 @@ body.wp-admin:has(.d5dsh-debug-banner) #wpcontent {
     padding-top: 34px;
 }
 
+/* ── Debug log viewer ─────────────────────────────────────────────────────── */
+
+.d5dsh-settings-divider {
+    border: none;
+    border-top: 1px solid #dcdcde;
+    margin: 16px 0;
+}
+.d5dsh-debug-log-viewer {
+    margin-top: 4px;
+}
+.d5dsh-debug-log-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.d5dsh-debug-log-meta {
+    font-size: 11px;
+    color: #787c82;
+    flex: 1;
+}
+.d5dsh-debug-log-actions {
+    display: flex;
+    gap: 6px;
+}
+.d5dsh-debug-log-output {
+    background: #1e1e1e;
+    color: #d4d4d4;
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 10px 12px;
+    border-radius: 4px;
+    max-height: 320px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    margin: 0;
+}
+
 /* ── Toast notification system ────────────────────────────────────────────── */
 
 #d5dsh-toast-container {
@@ -2717,51 +2758,147 @@ body.d5dsh-resizing {
 }
 
 /* ── Sanitization log ───────────────────────────────────────────────────── */
+/* ── Sanitization log wrapper (import modal) ───────────────────────────── */
 .d5dsh-si-sanitization-log {
     margin-top: 16px;
-    border: 1px solid #dba617;
-    border-radius: 4px;
-    padding: 12px;
-    background: #fffbe6;
 }
-.d5dsh-si-sanitization-log h4 {
-    margin: 0 0 6px;
-    color: #8a6d0b;
+.d5dsh-san-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #fff3cd;
+    border: 1px solid #e6ac00;
+    border-radius: 6px 6px 0 0;
+    padding: 10px 14px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #5c4200;
 }
-.d5dsh-si-sanitization-desc {
+.d5dsh-san-icon {
+    font-size: 16px;
+    line-height: 1;
+}
+.d5dsh-san-intro {
     font-size: 12px;
     color: #555;
+    background: #fffbe6;
+    border: 1px solid #e6ac00;
+    border-top: none;
+    padding: 8px 14px;
     margin: 0 0 8px;
 }
-.d5dsh-si-sanitization-log table {
-    width: 100%;
-    border-collapse: collapse;
+
+/* ── Individual sanitization card ─────────────────────────────────────── */
+.d5dsh-san-card {
+    border: 1px solid #d0a000;
+    border-radius: 5px;
+    margin-bottom: 8px;
+    background: #fffdf0;
     font-size: 12px;
+    overflow: hidden;
 }
-.d5dsh-si-sanitization-log th,
-.d5dsh-si-sanitization-log td {
-    padding: 4px 8px;
-    text-align: left;
-    border-bottom: 1px solid #e5d99b;
+.d5dsh-san-card--blocked {
+    border-color: #c0392b;
+    background: #fff5f5;
 }
-.d5dsh-si-sanitization-log th {
-    background: #f5edc8;
+.d5dsh-san-card--partial {
+    border-color: #d0a000;
+    background: #fffdf0;
+}
+.d5dsh-san-card--encoded,
+.d5dsh-san-card--normalised {
+    border-color: #2980b9;
+    background: #f0f8ff;
+}
+.d5dsh-san-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 7px 12px;
+    background: rgba(0,0,0,.03);
+    border-bottom: 1px solid rgba(0,0,0,.07);
+    gap: 8px;
+}
+.d5dsh-san-card-location {
+    font-size: 11px;
+    color: #444;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.d5dsh-san-card-location em {
+    font-style: normal;
+    color: #666;
+}
+.d5dsh-san-card-badge {
+    flex-shrink: 0;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .04em;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: #ddd;
+    color: #333;
+}
+.d5dsh-san-badge--blocked  { background: #fde8e8; color: #8b0000; }
+.d5dsh-san-badge--partial  { background: #fff3cd; color: #5c4200; }
+.d5dsh-san-badge--encoded  { background: #d0eaff; color: #003366; }
+.d5dsh-san-badge--normalised { background: #d0eaff; color: #003366; }
+.d5dsh-san-card-body {
+    padding: 8px 12px;
+}
+.d5dsh-san-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 5px;
+    align-items: baseline;
+}
+.d5dsh-san-row:last-child { margin-bottom: 0; }
+.d5dsh-san-label {
+    flex-shrink: 0;
+    width: 80px;
     font-weight: 600;
-    color: #6b5600;
+    color: #555;
+    font-size: 11px;
 }
-.d5dsh-si-sanitize-original {
+.d5dsh-san-value {
+    flex: 1;
+    color: #222;
+    line-height: 1.5;
+    word-break: break-word;
+}
+.d5dsh-san-code {
+    display: block;
+    font-family: monospace;
+    font-size: 11px;
+    background: rgba(0,0,0,.05);
+    border: 1px solid rgba(0,0,0,.1);
+    border-radius: 3px;
+    padding: 3px 6px;
+    word-break: break-all;
+    white-space: pre-wrap;
     color: #b32d2e;
-    max-width: 240px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
-.d5dsh-si-sanitize-cleaned {
+.d5dsh-san-code--stored {
     color: #1e6b1e;
-    max-width: 240px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+}
+.d5dsh-san-learn-more {
+    font-size: 11px;
     white-space: nowrap;
+    text-decoration: none;
+    color: #0073aa;
+}
+.d5dsh-san-learn-more:hover { text-decoration: underline; }
+
+/* Compact variant (security testing panel inline cards) */
+.d5dsh-san-card--compact .d5dsh-san-label { width: 70px; }
+.d5dsh-san-cards-inline {
+    padding: 8px 0 4px;
+}
+.d5dsh-san-cards-inline .d5dsh-san-card {
+    margin-bottom: 6px;
 }
 
 /* Preliminary Analysis accordion wrapper */
@@ -5926,3 +6063,111 @@ body.d5dsh-resizing {
     cursor: pointer;
     width: 100%;
 }
+
+/* ── Security Testing Panel ─────────────────────────────────────── */
+#d5dsh-sectest-panel {
+    margin-top: 24px;
+    padding: 16px 20px;
+    border: 1px solid #c3c4c7;
+    border-radius: 4px;
+    background: #fff;
+}
+#d5dsh-sectest-panel h3 {
+    margin: 0 0 12px;
+    font-size: 14px;
+    color: #1d2327;
+}
+.d5dsh-sectest-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+}
+.d5dsh-sectest-row label {
+    font-size: 13px;
+    font-weight: 600;
+    white-space: nowrap;
+    min-width: 120px;
+}
+#d5dsh-sectest-dir {
+    flex: 1;
+    min-width: 280px;
+    font-family: monospace;
+    font-size: 12px;
+}
+#d5dsh-sectest-spinner {
+    display: none;
+    font-size: 12px;
+    color: #646970;
+    margin-left: 8px;
+}
+#d5dsh-sectest-results {
+    margin-top: 16px;
+}
+.d5dsh-sectest-summary {
+    padding: 10px 14px;
+    border-radius: 4px;
+    font-size: 13px;
+    margin-bottom: 10px;
+    border-left: 4px solid #c3c4c7;
+}
+.d5dsh-sectest-summary-pass { background: #edfaef; border-left-color: #00a32a; }
+.d5dsh-sectest-summary-fail { background: #fcf0f1; border-left-color: #d63638; }
+.d5dsh-sectest-pass  { color: #00a32a; font-weight: 600; }
+.d5dsh-sectest-fail  { color: #d63638; font-weight: 600; }
+.d5dsh-sectest-san   { color: #b45309; font-weight: 600; }
+.d5dsh-sectest-meta  { color: #646970; font-size: 12px; }
+.d5dsh-sectest-error {
+    color: #d63638;
+    border: 1px solid #d63638;
+    background: #fcf0f1;
+    padding: 8px 12px;
+    border-radius: 4px;
+}
+.d5dsh-sectest-actions {
+    margin-bottom: 12px;
+}
+.d5dsh-sectest-table {
+    font-size: 12px;
+    border-collapse: collapse;
+    width: 100%;
+}
+.d5dsh-sectest-table th {
+    font-size: 11px;
+    font-weight: 600;
+    background: #f6f7f7;
+    padding: 5px 8px;
+    text-align: left;
+    border-bottom: 1px solid #e2e4e7;
+}
+.d5dsh-sectest-table td {
+    padding: 5px 8px;
+    border-bottom: 1px solid #f0f0f1;
+    vertical-align: top;
+}
+.d5dsh-sectest-filename { font-size: 11px; }
+.d5dsh-sectest-badge {
+    display: inline-block;
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+}
+.d5dsh-sectest-ok   { background: #edfaef; color: #00a32a; }
+.d5dsh-sectest-warn { background: #fef9ec; color: #b45309; }
+.d5dsh-sectest-san-row td { background: #fefcf3; padding: 0; }
+.d5dsh-sectest-san-summary {
+    font-size: 11px;
+    cursor: pointer;
+    padding: 5px 10px;
+    color: #b45309;
+    font-weight: 600;
+}
+.d5dsh-sectest-san-summary::-webkit-details-marker { display: none; }
+/* Cards inside security test table share the shared .d5dsh-san-card styles */
+.d5dsh-sectest-san-row .d5dsh-san-cards-inline { padding: 4px 8px 8px; }
+.d5dsh-sectest-san-row .d5dsh-san-card { font-size: 11px; }
+.d5dsh-sectest-san-row .d5dsh-san-label { font-size: 10px; width: 60px; }
+.d5dsh-sectest-san-row .d5dsh-san-code  { font-size: 10px; }

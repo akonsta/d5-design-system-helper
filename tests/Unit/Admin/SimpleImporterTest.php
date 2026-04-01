@@ -198,11 +198,31 @@ class SimpleImporterTest extends TestCase {
 	}
 
 	#[Test]
-	public function validate_path_within_rejects_nonexistent_path(): void {
+	public function validate_path_within_accepts_nonexistent_path_inside_base(): void {
+		// A file that does not yet exist but whose parent is within the base
+		// directory (the normal case during zip extraction) should be accepted.
 		$base_dir = sys_get_temp_dir() . '/d5dsh_test_' . uniqid();
 		mkdir( $base_dir, 0755, true );
 
 		$result = SimpleImporter::validate_path_within( $base_dir . '/nonexistent.txt', $base_dir );
+
+		// Should return the constructed canonical path, not false.
+		$this->assertNotFalse( $result );
+		$this->assertStringContainsString( 'nonexistent.txt', (string) $result );
+
+		// Cleanup.
+		rmdir( $base_dir );
+	}
+
+	#[Test]
+	public function validate_path_within_rejects_nonexistent_path_outside_base(): void {
+		// A path that resolves to outside the base directory must be rejected
+		// even when the target file does not yet exist.
+		$base_dir = sys_get_temp_dir() . '/d5dsh_test_' . uniqid();
+		mkdir( $base_dir, 0755, true );
+
+		// Build a path that would land outside: base/../outside.txt
+		$result = SimpleImporter::validate_path_within( $base_dir . '/../outside.txt', $base_dir );
 
 		$this->assertFalse( $result );
 

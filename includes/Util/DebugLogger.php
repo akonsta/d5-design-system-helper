@@ -55,7 +55,7 @@ class DebugLogger {
 	 * @param string $context  Optional label for the caller (e.g. class::method).
 	 */
 	public static function log( string $message, string $context = '' ): void {
-		if ( ! self::is_active() ) {
+		if ( ! static::is_active() ) {
 			return;
 		}
 		$line = self::format_line( 'INFO', $context, $message );
@@ -69,7 +69,7 @@ class DebugLogger {
 	 * @param string $context
 	 */
 	public static function log_error( string $message, string $context = '' ): void {
-		if ( ! self::is_active() ) {
+		if ( ! static::is_active() ) {
 			return;
 		}
 		$line = self::format_line( 'ERROR', $context, $message );
@@ -83,7 +83,7 @@ class DebugLogger {
 	 * @param string     $context  Optional label for the caller.
 	 */
 	public static function log_exception( \Throwable $e, string $context = '' ): void {
-		if ( ! self::is_active() ) {
+		if ( ! static::is_active() ) {
 			return;
 		}
 		$message = sprintf(
@@ -108,7 +108,7 @@ class DebugLogger {
 	 * @return string
 	 */
 	public static function exception_notice( \Throwable $e, string $fallback = '' ): string {
-		if ( ! self::is_active() ) {
+		if ( ! static::is_active() ) {
 			return $fallback ?: __( 'An unexpected error occurred.', 'd5-design-system-helper' );
 		}
 		return sprintf(
@@ -118,6 +118,57 @@ class DebugLogger {
 			basename( $e->getFile() ),
 			$e->getLine()
 		);
+	}
+
+	/**
+	 * Log an exception and send a JSON error response in one call.
+	 *
+	 * In debug mode the response includes the exception class, message, file,
+	 * line, and a truncated stack trace so the caller can inspect the Network
+	 * tab without needing SSH access to the log file.
+	 *
+	 * When debug mode is off only the $fallback message is returned, keeping
+	 * internal details out of production responses.
+	 *
+	 * Call this from catch blocks in AJAX handlers instead of calling
+	 * log_exception() + wp_send_json_error() separately.
+	 *
+	 * @param \Throwable $e
+	 * @param string     $context   Caller label (e.g. 'AuditEngine::ajax_run').
+	 * @param string     $fallback  User-visible message when debug is off.
+	 * @param int        $status    HTTP status code (default 500).
+	 * @return never
+	 */
+	public static function send_error( \Throwable $e, string $context = '', string $fallback = '', int $status = 500 ): never {
+		self::log_exception( $e, $context );
+
+		$user_message = $fallback ?: __( 'An unexpected error occurred.', 'd5-design-system-helper' );
+
+		if ( static::is_active() ) {
+			$trace_frames = array_slice( $e->getTrace(), 0, 8 );
+			$trace_lines  = [];
+			foreach ( $trace_frames as $i => $frame ) {
+				$loc           = ( $frame['file'] ?? '?' ) . ':' . ( $frame['line'] ?? '?' );
+				$fn            = ( isset( $frame['class'] ) ? $frame['class'] . $frame['type'] : '' ) . ( $frame['function'] ?? '' );
+				$trace_lines[] = "#{$i} {$loc} {$fn}()";
+			}
+			wp_send_json_error(
+				[
+					'message'         => $user_message,
+					'debug'           => [
+						'context'   => $context,
+						'exception' => get_class( $e ),
+						'error'     => $e->getMessage(),
+						'file'      => $e->getFile(),
+						'line'      => $e->getLine(),
+						'trace'     => $trace_lines,
+					],
+				],
+				$status
+			);
+		}
+
+		wp_send_json_error( [ 'message' => $user_message ], $status );
 	}
 
 	/**

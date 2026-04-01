@@ -35,6 +35,7 @@ namespace D5DesignSystemHelper\Admin;
 use D5DesignSystemHelper\Data\VarsRepository;
 use D5DesignSystemHelper\Data\PresetsRepository;
 use D5DesignSystemHelper\Util\DiviBlocParser;
+use D5DesignSystemHelper\Util\DebugLogger;
 use D5DesignSystemHelper\Admin\AuditExporter;
 use D5DesignSystemHelper\Admin\NotesManager;
 
@@ -84,7 +85,11 @@ class AuditEngine {
 			wp_send_json_error( [ 'message' => 'Unauthorized' ], 403 );
 		}
 
-		$report = $this->run();
+		try {
+			$report = $this->run();
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Audit failed.' );
+		}
 		wp_send_json_success( $report );
 	}
 
@@ -110,7 +115,11 @@ class AuditEngine {
 			? $payload['dso_usage']
 			: [];
 
-		$report = $this->run_full( $dso_usage );
+		try {
+			$report = $this->run_full( $dso_usage );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Contextual audit failed.' );
+		}
 		wp_send_json_success( $report );
 	}
 
@@ -137,7 +146,12 @@ class AuditEngine {
 		$audit_data = isset( $payload['audit'] ) ? $payload['audit'] : $payload;
 		$scan_data  = $payload['scan'] ?? null;
 
-		AuditExporter::export_audit_xlsx( $audit_data, NotesManager::get_all(), $scan_data );
+		try {
+			AuditExporter::export_audit_xlsx( $audit_data, NotesManager::get_all(), $scan_data );
+			// export_audit_xlsx streams and exits — execution ends there on success.
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Audit XLSX export failed.' );
+		}
 	}
 
 	/**
@@ -159,7 +173,12 @@ class AuditEngine {
 			wp_send_json_error( [ 'message' => 'Invalid scan data.' ], 400 );
 		}
 
-		AuditExporter::export_scan_xlsx( $data, NotesManager::get_all() );
+		try {
+			AuditExporter::export_scan_xlsx( $data, NotesManager::get_all() );
+			// export_scan_xlsx streams and exits — execution ends there on success.
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Scan XLSX export failed.' );
+		}
 	}
 
 	// ── Public orchestration ─────────────────────────────────────────────────

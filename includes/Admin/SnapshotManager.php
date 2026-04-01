@@ -47,7 +47,10 @@ class SnapshotManager {
     /**
      * Push a new snapshot onto the stack for the given type.
      *
-     * If the stack is full, the oldest snapshot is deleted to make room.
+     * For 'vars' imports/exports this also automatically snapshots the companion
+     * user-colors data (et_divi[et_global_data][global_colors]) under the synthetic
+     * type key 'vars_colors', so both halves of the design system can be restored
+     * together if an import corrupts either option.
      *
      * @param string $type        Data type key: 'vars', 'presets', 'layouts',
      *                            'pages', 'theme_customizer', 'builder_templates'.
@@ -61,6 +64,12 @@ class SnapshotManager {
         string $trigger,
         string $description = ''
     ): void {
+        // Automatically co-snapshot user colors whenever vars are snapshotted.
+        if ( $type === 'vars' ) {
+            $repo         = new \D5DesignSystemHelper\Data\VarsRepository();
+            $colors_data  = $repo->get_raw_colors();
+            self::push( 'vars_colors', $colors_data, $trigger, $description . ' [colors]' );
+        }
         $meta = self::get_meta( $type );
 
         // Shift all existing indices up by 1 (newest will be index 0).
@@ -201,6 +210,7 @@ class SnapshotManager {
      */
     private static function count_entries( string $type, array $data ): int {
         return match ( $type ) {
+            'vars_colors'       => count( $data ),
             'vars'              => array_sum( array_map( fn( $v ) => is_array( $v ) ? count( $v ) : 0, $data ) ),
             'presets'           => array_sum( array_map(
                 fn( $g ) => array_sum( array_map( fn( $m ) => count( $m['items'] ?? [] ), $g ) ),
@@ -219,8 +229,9 @@ class SnapshotManager {
      */
     private static function write_to_db( string $type, array $data ): bool {
         return match ( $type ) {
-            'vars'    => ( new \D5DesignSystemHelper\Data\VarsRepository() )->save_raw( $data ),
-            'presets' => ( new \D5DesignSystemHelper\Data\PresetsRepository() )->save_raw( $data ),
+            'vars'        => ( new \D5DesignSystemHelper\Data\VarsRepository() )->save_raw( $data ),
+            'vars_colors' => ( new \D5DesignSystemHelper\Data\VarsRepository() )->save_raw_colors( $data ),
+            'presets'     => ( new \D5DesignSystemHelper\Data\PresetsRepository() )->save_raw( $data ),
             'theme_customizer' => ( new \D5DesignSystemHelper\Data\ThemeCustomizerRepository() )->save_raw( $data ),
             'layouts', 'pages' => ( new \D5DesignSystemHelper\Data\LayoutsRepository() )->restore_posts( $type, $data ),
             'builder_templates' => ( new \D5DesignSystemHelper\Data\BuilderTemplatesRepository() )->restore_templates( $data ),

@@ -128,16 +128,31 @@ class SimpleImporter {
 	 * Prevents path traversal attacks by verifying the canonicalized path
 	 * is still within the expected base directory.
 	 *
+	 * For paths that do not yet exist on the filesystem (e.g. files that will be
+	 * created), realpath() returns false, making a boundary check unreliable.
+	 * In that case we resolve the parent directory instead and append the
+	 * filename — this is safe because the filename component cannot contain
+	 * directory separators after the pre-extraction traversal guard has run.
+	 *
 	 * @param string $path     The path to validate.
 	 * @param string $base_dir The base directory the path must be within.
 	 * @return string|false    The canonicalized path if safe, false otherwise.
 	 */
 	public static function validate_path_within( string $path, string $base_dir ) {
-		$real_path = realpath( $path );
 		$real_base = realpath( $base_dir );
-
-		if ( ! $real_path || ! $real_base ) {
+		if ( ! $real_base ) {
 			return false;
+		}
+
+		$real_path = realpath( $path );
+
+		if ( ! $real_path ) {
+			// Path does not exist yet — resolve via parent directory.
+			$parent    = realpath( dirname( $path ) );
+			if ( ! $parent ) {
+				return false;
+			}
+			$real_path = $parent . DIRECTORY_SEPARATOR . basename( $path );
 		}
 
 		// Ensure the path starts with the base directory + separator.
@@ -176,31 +191,191 @@ class SimpleImporter {
 	}
 
 	/**
+	 * Sanitize a CSS/design-token value: apply sanitize_text_field then strip
+	 * bare CSS block delimiters ({ and }) that cannot appear in a CSS property
+	 * value but could crash CSS parsers or break Divi rendering.
+	 *
+	 * @param string $value Raw value.
+	 * @return string Sanitized value.
+	 */
+	public static function sanitize_css_value( string $value ): string {
+		$sanitized = sanitize_text_field( $value );
+		// Remove bare block delimiters. These are never valid in a CSS property
+		// value (colors, lengths, font names) and are the vector for CSS block
+		// break injection attacks (e.g. "16px } body { display:none").
+		$sanitized = preg_replace( '/[{}]/', '', $sanitized ) ?? $sanitized;
+		return $sanitized;
+	}
+
+	/**
 	 * Sanitize a string and log if the value changed.
 	 *
 	 * @param string $value   Raw value.
 	 * @param string $context Human-readable context (e.g. "Variable gcid-abc123").
 	 * @param string $field   Field name (e.g. "label", "value", "post_content").
-	 * @param string $method  Sanitization method: 'text' (sanitize_text_field),
-	 *                        'key' (sanitize_key), 'kses' (wp_kses_post).
+	 * @param string $method  Sanitization method:
+	 *                        'text'      (sanitize_text_field — strips newlines),
+	 *                        'textarea'  (sanitize_textarea_field — preserves newlines),
+	 *                        'key'       (sanitize_key),
+	 *                        'kses'      (wp_kses_post),
+	 *                        'title'     (sanitize_title),
+	 *                        'css_value' (strip HTML + bare { } block delimiters).
 	 * @return string Sanitized value.
 	 */
 	public static function sanitize_and_log( string $value, string $context, string $field, string $method = 'text' ): string {
 		$sanitized = match ( $method ) {
-			'key'   => sanitize_key( $value ),
-			'kses'  => wp_kses_post( $value ),
-			'title' => sanitize_title( $value ),
-			default => sanitize_text_field( $value ),
+			'key'       => sanitize_key( $value ),
+			'kses'      => wp_kses_post( $value ),
+			'title'     => sanitize_title( $value ),
+			'css_value' => self::sanitize_css_value( $value ),
+			'textarea'  => sanitize_textarea_field( $value ),
+			default     => sanitize_text_field( $value ),
 		};
 		if ( $sanitized !== $value ) {
-			self::$sanitization_log[] = [
-				'context'   => $context,
-				'field'     => $field,
-				'original'  => mb_substr( $value, 0, 200 ),
-				'sanitized' => mb_substr( $sanitized, 0, 200 ),
-			];
+			$classification               = self::classify_threat( $value, $sanitized, $field, $method );
+			self::$sanitization_log[]     = array_merge(
+				[
+					'context'   => $context,
+					'field'     => $field,
+					'original'  => mb_substr( $value, 0, 500 ),
+					'sanitized' => mb_substr( $sanitized, 0, 500 ),
+				],
+				$classification
+			);
 		}
 		return $sanitized;
+	}
+
+	/**
+	 * Classify the threat type and produce a human-readable report for a sanitization hit.
+	 *
+	 * @param string $original  The original (unsanitized) value.
+	 * @param string $sanitized The sanitized result.
+	 * @param string $field     Field name.
+	 * @param string $method    Sanitization method used.
+	 * @return array Keys: threat_type, threat_summary, outcome, outcome_detail, reference_url.
+	 */
+	private static function classify_threat( string $original, string $sanitized, string $field, string $method ): array {
+		$lc = strtolower( $original );
+
+		// --- Determine threat type and summary ---
+		$threat_type    = 'unknown';
+		$threat_summary = 'The value contained characters or markup that are not allowed in this field.';
+		$reference_url  = 'https://owasp.org/www-community/attacks/xss/';
+
+		// Script injection (XSS) — <script> tags or javascript: URIs.
+		if ( preg_match( '/<\s*script[\s>]/i', $original ) || preg_match( '/javascript\s*:/i', $original ) ) {
+			$threat_type    = 'xss_script';
+			$threat_summary = 'The value contained a <script> tag or a javascript: URL. '
+				. 'If stored, this could run arbitrary code in a visitor\'s browser (Cross-Site Scripting / XSS), '
+				. 'potentially stealing login sessions or redirecting users to malicious sites.';
+			$reference_url  = 'https://owasp.org/www-community/attacks/xss/';
+
+		// PHP / server-side code injection.
+		} elseif ( preg_match( '/<\?\s*php/i', $original ) || preg_match( '/<\?=/i', $original ) ) {
+			$threat_type    = 'php_injection';
+			$threat_summary = 'The value contained a PHP opening tag (<?php or <?=). '
+				. 'If executed on the server, PHP code can read files, access the database, '
+				. 'or take over your site entirely.';
+			$reference_url  = 'https://owasp.org/www-project-top-ten/2017/A1_2017-Injection';
+
+		// Iframe / embedded content injection.
+		} elseif ( preg_match( '/<\s*iframe[\s>]/i', $original ) ) {
+			$threat_type    = 'iframe_injection';
+			$threat_summary = 'The value contained an <iframe> element. '
+				. 'Iframes can load external pages invisibly inside your site, '
+				. 'commonly used for phishing, clickjacking, or drive-by malware downloads.';
+			$reference_url  = 'https://owasp.org/www-community/attacks/Clickjacking';
+
+		// Event-handler attribute injection (onclick, onerror, etc.).
+		} elseif ( preg_match( '/\bon\w+\s*=/i', $original ) ) {
+			$threat_type    = 'xss_event_handler';
+			$threat_summary = 'The value contained an HTML event-handler attribute (such as onclick= or onerror=). '
+				. 'These execute JavaScript when triggered by a user interaction, '
+				. 'enabling XSS attacks without a <script> tag.';
+			$reference_url  = 'https://owasp.org/www-community/attacks/xss/';
+
+		// CSS expression / style-based injection.
+		} elseif ( preg_match( '/expression\s*\(/i', $original ) || preg_match( '/<\s*style[\s>]/i', $original ) ) {
+			$threat_type    = 'css_injection';
+			$threat_summary = 'The value contained a CSS <style> block or a CSS expression(). '
+				. 'Injected styles can alter page layout, overlay phishing content, '
+				. 'or (in older browsers) execute JavaScript via expression().';
+			$reference_url  = 'https://owasp.org/www-community/attacks/CSS_Injection';
+
+		// Generic HTML tag found where plain text is expected.
+		} elseif ( preg_match( '/<[a-z][\s\S]*?>/i', $original ) && $method !== 'kses' ) {
+			$threat_type    = 'html_tag';
+			$threat_summary = 'The value contained HTML markup in a field that only accepts plain text. '
+				. 'HTML in unexpected places can break your site\'s layout '
+				. 'or be used to inject content into pages.';
+			$reference_url  = 'https://owasp.org/www-community/attacks/xss/';
+
+		// Control characters or null bytes.
+		} elseif ( preg_match( '/[\x00-\x08\x0b\x0c\x0e-\x1f]/', $original ) ) {
+			$threat_type    = 'control_chars';
+			$threat_summary = 'The value contained invisible control characters or null bytes. '
+				. 'These can bypass input filters, corrupt stored data, '
+				. 'or cause unexpected behavior in templates and email clients.';
+			$reference_url  = 'https://owasp.org/www-project-web-security-testing-guide/stable/4-Web_Application_Security_Testing/07-Input_Validation_Testing/05.2-Testing_for_HTTP_Parameter_Pollution';
+
+		// Key/slug field — stripped non-slug characters.
+		} elseif ( $method === 'key' || $method === 'title' ) {
+			$threat_type    = 'invalid_key_chars';
+			$threat_summary = 'The value contained characters that are not allowed in a key or URL slug '
+				. '(only lowercase letters, numbers, hyphens, and underscores are permitted). '
+				. 'The extra characters were removed to prevent database or URL errors.';
+			$reference_url  = 'https://developer.wordpress.org/reference/functions/sanitize_key/';
+
+		// Catch-all: whitespace trimming, encoding changes, or other minor normalizations.
+		} else {
+			$threat_type    = 'normalised';
+			$threat_summary = 'The value contained characters that needed to be encoded or whitespace that '
+				. 'was trimmed. This is a routine normalisation to ensure the stored value is clean and safe.';
+			$reference_url  = 'https://developer.wordpress.org/apis/security/sanitizing/';
+		}
+
+		// --- Determine outcome ---
+		if ( $sanitized === '' ) {
+			$outcome        = 'blocked';
+			$outcome_detail = 'The entire value was removed because it consisted entirely of disallowed content. '
+				. 'Nothing was stored for this field.';
+		} elseif ( $sanitized !== $original ) {
+			$outcome        = 'partial';
+			// Explain what specifically was removed.
+			if ( $threat_type === 'xss_script' ) {
+				$outcome_detail = 'The <script> tag(s) and their contents were stripped. '
+					. 'Any surrounding plain text was kept.';
+			} elseif ( $threat_type === 'php_injection' ) {
+				$outcome_detail = 'The PHP code block was removed. Any surrounding text was kept.';
+			} elseif ( $threat_type === 'iframe_injection' ) {
+				$outcome_detail = 'The <iframe> element was removed. Any surrounding text was kept.';
+			} elseif ( $threat_type === 'xss_event_handler' ) {
+				$outcome_detail = 'The event-handler attribute(s) were stripped from the HTML element. '
+					. 'The element itself may have been kept if it is otherwise permitted.';
+			} elseif ( $threat_type === 'css_injection' ) {
+				$outcome_detail = 'The <style> block or CSS expression was removed. Any surrounding text was kept.';
+			} elseif ( $threat_type === 'html_tag' ) {
+				$outcome_detail = 'HTML tags were stripped, leaving only the plain text content.';
+			} elseif ( $threat_type === 'invalid_key_chars' ) {
+				$outcome_detail = 'Disallowed characters were removed to produce a valid key or slug.';
+			} else {
+				$outcome_detail = 'Part of the value was modified: special characters were encoded '
+					. 'or leading/trailing whitespace was removed.';
+			}
+		} else {
+			// Should not reach here (we only classify when sanitized !== original), but be safe.
+			$outcome        = 'encoded';
+			$outcome_detail = 'The value was encoded for safe storage.';
+		}
+
+		return [
+			'threat_type'    => $threat_type,
+			'threat_summary' => $threat_summary,
+			'outcome'        => $outcome,
+			'outcome_detail' => $outcome_detail,
+			'reference_url'  => $reference_url,
+		];
 	}
 
 	/**
@@ -226,10 +401,14 @@ class SimpleImporter {
 			return $out;
 		}
 		if ( is_string( $data ) ) {
+			// Use sanitize_textarea_field to preserve legitimate newlines in preset
+			// attrs, Theme Customizer values, and CSS-containing strings.
+			// sanitize_text_field would silently convert \n to a space, corrupting
+			// valid multiline CSS/code structures.
 			if ( $context ) {
-				return self::sanitize_and_log( $data, $context, $path ?: 'value' );
+				return self::sanitize_and_log( $data, $context, $path ?: 'value', 'textarea' );
 			}
-			return sanitize_text_field( $data );
+			return sanitize_textarea_field( $data );
 		}
 		// Booleans, integers, floats, null — pass through unchanged.
 		return $data;
@@ -238,7 +417,8 @@ class SimpleImporter {
 	/**
 	 * Sanitize a post_meta value for safe storage.
 	 *
-	 * Scalar strings are passed through sanitize_text_field(). Arrays are
+	 * Scalar strings are passed through sanitize_textarea_field() to preserve
+	 * legitimate newlines in post meta that may contain CSS or code. Arrays are
 	 * recursively sanitized. Other types pass through unchanged.
 	 *
 	 * @param mixed  $value   The meta value.
@@ -251,9 +431,9 @@ class SimpleImporter {
 		}
 		if ( is_string( $value ) ) {
 			if ( $context ) {
-				return self::sanitize_and_log( $value, $context, 'meta_value' );
+				return self::sanitize_and_log( $value, $context, 'meta_value', 'textarea' );
 			}
-			return sanitize_text_field( $value );
+			return sanitize_textarea_field( $value );
 		}
 		return $value;
 	}
@@ -513,6 +693,33 @@ class SimpleImporter {
 		}
 	}
 
+	// ── WP-CLI / direct import API ────────────────────────────────────────────
+
+	/**
+	 * Import a decoded JSON payload directly — no HTTP, no file upload.
+	 *
+	 * Used by the WP-CLI security-test command.  Delegates to the same private
+	 * import methods that ajax_execute() calls so results are identical.
+	 *
+	 * @param string $type One of: et_native, vars, presets, theme_customizer,
+	 *                     dtcg, layouts, pages, builder_templates.
+	 * @param array  $data Decoded JSON payload.
+	 * @return array Result with at minimum: success (bool), new (int), updated (int), message (string).
+	 */
+	public function import_json_direct( string $type, array $data ): array {
+		return match ( $type ) {
+			'vars'              => $this->import_json_vars( $data ),
+			'presets'           => $this->import_json_presets( $data ),
+			'layouts'           => $this->import_json_posts( $data, 'et_pb_layout' ),
+			'pages'             => $this->import_json_posts( $data, 'page' ),
+			'theme_customizer'  => $this->import_json_theme_customizer( $data ),
+			'builder_templates' => $this->import_json_builder_templates( $data ),
+			'et_native'         => $this->import_json_et_native( $data ),
+			'dtcg'              => $this->import_json_dtcg( $data ),
+			default             => [ 'success' => false, 'new' => 0, 'updated' => 0, 'message' => 'Unknown type: ' . $type ],
+		};
+	}
+
 	// ── Analysis helpers ──────────────────────────────────────────────────────
 
 	/**
@@ -531,6 +738,33 @@ class SimpleImporter {
 		$opened  = $zip->open( $tmp_path );
 		if ( $opened !== true ) {
 			throw new \RuntimeException( 'Could not open zip file.' );
+		}
+
+		// ── Path-traversal guard ───────────────────────────────────────────────
+		// Validate every zip entry name *before* extraction using string
+		// normalisation only — no realpath(), which requires the path to already
+		// exist on the filesystem and returns false for new files, making
+		// boundary checks unreliable for entries that would be created by
+		// extraction (the exact scenario for path-traversal attacks).
+		for ( $i = 0; $i < $zip->numFiles; $i++ ) {
+			$entry_name = $zip->getNameIndex( $i );
+			if ( $entry_name === false ) {
+				continue;
+			}
+			// Normalise separators and collapse any .. segments.
+			$normalised = str_replace( '\\', '/', $entry_name );
+			// Reject absolute paths and any traversal sequences.
+			if (
+				str_starts_with( $normalised, '/' ) ||
+				str_contains( $normalised, '../' ) ||
+				str_contains( $normalised, '/..' ) ||
+				$normalised === '..'
+			) {
+				$zip->close();
+				throw new \RuntimeException(
+					'Zip file contains a path traversal entry and was rejected: ' . esc_html( $entry_name )
+				);
+			}
 		}
 
 		// Extract to a temp directory.
@@ -1903,7 +2137,7 @@ class SimpleImporter {
 				// Label override (from client-side import label editor) takes priority.
 				$base_label        = $item['label'] ?? $existing['label'] ?? '';
 				$existing['label']  = self::sanitize_and_log( $label_overrides[ $id ] ?? $base_label, $ctx, 'label' );
-				$existing['value']  = self::sanitize_and_log( $item['value']  ?? $existing['value']  ?? '', $ctx, 'value' );
+				$existing['value']  = self::sanitize_and_log( $item['value']  ?? $existing['value']  ?? '', $ctx, 'value', 'css_value' );
 				$existing['status'] = self::sanitize_and_log( $item['status'] ?? $existing['status'] ?? 'active', $ctx, 'status', 'key' );
 				$cur[ $var_type ][ $id ] = $existing;
 				if ( $is_new ) {
@@ -1994,7 +2228,7 @@ class SimpleImporter {
 				$ctx    = 'DTCG token ' . $raw_id;
 				$id     = self::sanitize_and_log( $raw_id, $ctx, 'id', 'key' );
 				$label  = self::sanitize_and_log( (string) ( $token['$description'] ?? $token_key ), $ctx, 'label' );
-				$value  = self::sanitize_and_log( (string) $token['$value'], $ctx, 'value' );
+				$value  = self::sanitize_and_log( (string) $token['$value'], $ctx, 'value', 'css_value' );
 
 				$is_new                      = ! isset( $cur[ $var_type ][ $id ] );
 				$existing                    = $cur[ $var_type ][ $id ] ?? [ 'id' => $id ];
@@ -2390,9 +2624,16 @@ class SimpleImporter {
 				$ctx      = 'ET Variable ' . $id;
 				$is_new   = ! isset( $cur_vars[ $var_type ][ $id ] );
 				$existing = $cur_vars[ $var_type ][ $id ] ?? [ 'id' => $id ];
-				$existing['label']  = self::sanitize_and_log( $item['label']  ?? $existing['label']  ?? '', $ctx, 'label' );
-				$existing['value']  = self::sanitize_and_log( $item['value']  ?? $existing['value']  ?? '', $ctx, 'value' );
-				$existing['status'] = self::sanitize_and_log( $item['status'] ?? $existing['status'] ?? 'active', $ctx, 'status', 'key' );
+				// Guard against non-string scalars or arrays from malformed fixtures.
+				$raw_label  = $item['label']  ?? $existing['label']  ?? '';
+				$raw_value  = $item['value']  ?? $existing['value']  ?? '';
+				$raw_status = $item['status'] ?? $existing['status'] ?? 'active';
+				if ( is_array( $raw_label ) )  { $raw_label  = ''; }
+				if ( is_array( $raw_value ) )  { $raw_value  = ''; }
+				if ( is_array( $raw_status ) ) { $raw_status = 'active'; }
+				$existing['label']  = self::sanitize_and_log( (string) $raw_label,  $ctx, 'label' );
+				$existing['value']  = self::sanitize_and_log( (string) $raw_value,  $ctx, 'value', 'css_value' );
+				$existing['status'] = self::sanitize_and_log( (string) $raw_status, $ctx, 'status', 'key' );
 				$cur_vars[ $var_type ][ $id ] = $existing;
 				$is_new ? $added++ : $updated++;
 				if ( ! isset( $groups[ $var_type ] ) ) { $groups[ $var_type ] = [ 'new' => 0, 'updated' => 0 ]; }

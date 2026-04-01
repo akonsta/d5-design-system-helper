@@ -1,0 +1,200 @@
+{
+  "_meta": {
+    "type": "vars",
+    "plugin_version": "0.1.0",
+    "exported_at": "2026-03-30T00:00:00+00:00",
+    "site_url": "https://example.com"
+  },
+  "et_divi_global_variables": {
+
+    "colors": {
+      "gcid-brand-primary": {
+        "id":     "gcid-brand-primary",
+        "label":  "Brand Primary",
+        "value":  "#1a73e8",
+        "status": "active"
+      },
+      "gcid-brand-secondary": {
+        "id":     "gcid-brand-secondary",
+        "label":  "Brand Secondary",
+        "value":  "#e8470a",
+        "status": "active"
+      },
+      "gcid-brand-accent": {
+        "id":     "gcid-brand-accent",
+        "label":  "Accent",
+        "value":  "#f5a623",
+        "status": "active"
+      },
+      "gcid-neutral-dark": {
+        "id":     "gcid-neutral-dark",
+        "label":  "Neutral Dark",
+        "value":  "#1c1c1c",
+        "status": "active"
+      },
+      "gcid-neutral-mid": {
+        "id":     "gcid-neutral-mid",
+        "label":  "Neutral Mid",
+        "value":  "#6b6b6b",
+        "status": "active"
+      },
+      "gcid-neutral-light": {
+        "id":     "gcid-neutral-light",
+        "label":  "Neutral Light",
+        "value":  "#f2f2f2",
+        "status": "active"
+      },
+      "gcid-white": {
+        "id":     "gcid-white",
+        "label":  "White",
+        "value":  "#ffffff",
+        "status": "active"
+      },
+      "gcid-success": {
+        "id":     "gcid-success",
+        "label":  "Success",
+        "value":  "#2e7d32",
+        "status": "active"
+      },
+      "gcid-warning": {
+        "id":     "gcid-warning",
+        "label":  "Warning",
+        "value":  "#f9a825",
+        "status": "active"
+      },
+      "gcid-error": {
+        "id":     "gcid-error",
+        "label":  "Error",
+        "value":  "#c62828",
+        "status": "active"
+      }
+    },
+
+    "numbers": {
+      "gvid-spacing-xs": {
+        "id":     "gvid-spacing-xs",
+        "label":  "Spacing XS",
+        "value":  "4px",
+        "status": "active"
+      },
+      "gvid-spacing-sm": {
+        "id":     "gvid-spacing-sm",
+        "label":  "Spacing SM",
+        "value":  "8px",
+        "status": "active"
+      },
+      "gvid-spacing-md": {
+        "id":     "gvid-spacing-md",
+        "label":  "Spacing MD",
+        "value":  "16px",
+        "status": "active"
+      },
+      "gvid-spacing-lg": {
+        "id":     "gvid-spacing-lg",
+        "label":  "Spacing LG",
+        "value":  "24px",
+        "status": "active"
+      },
+      "gvid-spacing-xl": {
+        "id":     "gvid-spacing-xl",
+        "label":  "Spacing XL",
+        "value":  "48px",
+        "status": "active"
+      },
+      "gvid-border-radius-sm": {
+        "id":     "gvid-border-radius-sm",
+        "label":  "Border Radius SM",
+        "value":  "4px",
+        "status": "active"
+      },
+      "gvid-border-radius-md": {
+        "id":     "gvid-border-radius-md",
+        "label":  "Border Radius MD",
+        "value":  "8px",
+        "status": "active"
+      },
+      "gvid-border-radius-lg": {
+        "id":     "gvid-border-radius-lg",
+        "label":  "Border Radius LG",
+        "value":  "16px",
+        "status": "active"
+      },
+      "gvid-line-height-body": {
+        "id":     "gvid-line-height-body",
+        "label":  "Line Height Body",
+        "value":  "1.6",
+        "status": "active"
+      },
+      "gvid-line-height-heading": {
+        "id":     "gvid-line-height-heading",
+        "label":  "Line Height Heading",
+        "value":  "1.2",
+        "status": "active"
+      }
+    },
+
+    "fonts": {
+      "gvid-font-body": {
+        "id":     "gvid-font-body",
+        "label":  "Body Font",
+        "value":  "Inter",
+        "status": "active"
+      },
+      "gvid-font-heading": {
+        "id":     "gvid-font-heading",
+        "label":  "Heading Font",
+        "value":  "Playfair Display",
+        "status": "active"
+      },
+      "gvid-font-mono": {
+        "id":     "gvid-font-mono",
+        "label":  "Monospace Font",
+        "value":  "JetBrains Mono",
+        "status": "active"
+      }
+    },
+
+    "strings": {
+      "gvid-site-name": {
+        "id":     "gvid-site-name",
+        "label":  "Site Name",
+        "value":  "Acme Corp",
+        "status": "active"
+      },
+      "gvid-tagline": {
+        "id":     "gvid-tagline",
+        "label":  "Tagline",
+        "value":  "Building things that matter.",
+        "status": "active"
+      },
+      "gvid-cta-primary": {
+        "id":     "gvid-cta-primary",
+        "label":  "CTA Primary",
+        "value":  "Get Started",
+        "status": "active"
+      },
+      "gvid-cta-secondary": {
+        "id":     "gvid-cta-secondary",
+        "label":  "CTA Secondary",
+        "value":  "Learn More",
+        "status": "active"
+      }
+    },
+
+    "images": {
+      "gvid-logo-main": {
+        "id":     "gvid-logo-main",
+        "label":  "Logo Main",
+        "value":  "https://example.com/wp-content/uploads/logo.png",
+        "status": "active"
+      },
+      "gvid-hero-bg": {
+        "id":     "gvid-hero-bg",
+        "label":  "Hero Background",
+        "value":  "https://example.com/wp-content/uploads/hero-bg.jpg",
+        "status": "active"
+      }
+    }
+
+  }
+}

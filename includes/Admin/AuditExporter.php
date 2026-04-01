@@ -177,7 +177,7 @@ class AuditExporter {
 		$ws->getColumnDimension( 'C' )->setWidth( 72 );
 
 		$ws->mergeCells( 'A1:C1' );
-		$ws->setCellValue( 'A1', 'D5 Design System Helper \u2014 Content Scan Report' );
+		$ws->setCellValue( 'A1', 'D5 Design System Helper — Content Scan Report' );
 		$ws->getStyle( 'A1' )->applyFromArray( $title_style );
 		$ws->getRowDimension( 1 )->setRowHeight( 28 );
 
@@ -189,7 +189,7 @@ class AuditExporter {
 		$sections = [
 			[
 				'heading' => 'What This File Contains',
-				'body'    => 'This Excel file was produced by the D5 Design System Helper Content Scan. It contains a point-in-time snapshot of all scanned pages, posts, Divi Library layouts, and Theme Builder templates (all statuses, up to 1,000 items) and their relationship to your Divi 5 design system objects (DSOs \u2014 Variables and Presets). It does not contain page content, database records, or any data outside the scanned post types.',
+				'body'    => 'This Excel file was produced by the D5 Design System Helper Content Scan. It contains a point-in-time snapshot of all scanned pages, posts, Divi Library layouts, and Theme Builder templates (all statuses, up to 1,000 items) and their relationship to your Divi 5 design system objects (DSOs — Variables and Presets). It does not contain page content, database records, or any data outside the scanned post types.',
 			],
 			[
 				'heading' => 'Info (Sheet 1)',
@@ -209,7 +209,7 @@ class AuditExporter {
 			],
 			[
 				'heading' => 'No-DSO Content (Sheet 6)',
-				'body'    => 'Content items with no variable or preset references \u2014 pages, posts, layouts, and templates not yet using the design system.',
+				'body'    => 'Content items with no variable or preset references — pages, posts, layouts, and templates not yet using the design system.',
 			],
 			[
 				'heading' => 'Notes and Tags',
@@ -274,12 +274,12 @@ class AuditExporter {
 			[ 'Presets',         'Active Content, Content Inventory',                  'Count of preset references found in this content item\'s post_content. Each modulePreset or presetId key in the Divi block JSON is counted. The same preset referenced multiple times in one item is counted multiple times.' ],
 			[ 'Tot Vars',        'Active Content, Content Inventory (Vars in Presets group)', 'Total number of variable references found inside the presets used by this content item. Only counts variables embedded in preset definitions, not direct variable references in post_content (those are in the Vars column).' ],
 			[ 'Uniq Vars',       'Active Content, Content Inventory (Vars in Presets group)', 'Number of distinct variables referenced inside the presets used by this content item. If two presets both reference the same variable, it counts as 1 unique variable.' ],
-			[ 'DSO IDs',         'Active Content, Content Inventory',                  'A comma-separated list of all unique DSO identifiers referenced in this content item \u2014 variable IDs (e.g. gcid-abc123) and preset IDs combined. Used to quickly see which specific design system objects this content depends on.' ],
+			[ 'DSO IDs',         'Active Content, Content Inventory',                  'A comma-separated list of all unique DSO identifiers referenced in this content item — variable IDs (e.g. gcid-abc123) and preset IDs combined. Used to quickly see which specific design system objects this content depends on.' ],
 			[ 'DSO Type',        'DSO Usage',                                          'Whether this DSO is a Variable or a Preset. Variables are global design tokens (colors, spacing, typography, etc.). Presets are Element Presets or Group Presets that apply saved styles to Divi modules.' ],
 			[ 'DSO ID',          'DSO Usage',                                          'The unique identifier for this Design System Object as stored in the Divi database. Variable IDs typically begin with "gcid-" (e.g. gcid-abc123). Preset IDs are typically UUIDs. These IDs are assigned by Divi and cannot be changed.' ],
-			[ 'Label',           'DSO Usage',                                          'The human-readable name assigned to this DSO in the Divi design system \u2014 the name shown in the Divi editor\'s variable or preset picker. This is the "label" field for variables and the "name" field for presets.' ],
+			[ 'Label',           'DSO Usage',                                          'The human-readable name assigned to this DSO in the Divi design system — the name shown in the Divi editor\'s variable or preset picker. This is the "label" field for variables and the "name" field for presets.' ],
 			[ 'Used By (count)', 'DSO Usage',                                          'The number of content items (pages, posts, layouts, templates) that contain at least one reference to this DSO. A content item is counted once regardless of how many times it references the same DSO.' ],
-			[ 'Content Items',   'DSO Usage',                                          'A comma-separated list of content item titles and their post IDs \u2014 one entry per item that references this DSO. Format: "Title (#PostID)". Useful for impact analysis: tells you exactly which content would be affected if this DSO is changed or deleted.' ],
+			[ 'Content Items',   'DSO Usage',                                          'A comma-separated list of content item titles and their post IDs — one entry per item that references this DSO. Format: "Title (#PostID)". Useful for impact analysis: tells you exactly which content would be affected if this DSO is changed or deleted.' ],
 			[ 'Note',            'Active Content, Content Inventory',                  'A user-defined free-text annotation attached to this content item in the D5 Design System Helper plugin. Notes are stored separately from WordPress content and do not affect the live site.' ],
 			[ 'Tags',            'Active Content, Content Inventory',                  'Comma-separated user-defined tags attached to this content item in the D5 Design System Helper plugin. Used to categorise or filter content items for review (e.g. "legacy", "do-not-touch", "needs-review").' ],
 		];
@@ -313,7 +313,7 @@ class AuditExporter {
 
 		$ws->mergeCells( 'A' . $row . ':C' . $row );
 		$ws->setCellValue( 'A' . $row, sprintf(
-			'Generated by D5 Design System Helper v%s on %s UTC \u2014 %s',
+			'Generated by D5 Design System Helper v%s on %s UTC — %s',
 			defined( 'D5DSH_VERSION' ) ? D5DSH_VERSION : '',
 			gmdate( 'Y-m-d H:i' ),
 			get_bloginfo( 'url' )
@@ -497,7 +497,6 @@ class AuditExporter {
 		$row++;
 
 		// ── Simple Audit section header ──────────────────────────────────────
-		$simple_label_row = $row;
 		$ws->mergeCells( 'A' . $row . ':C' . $row );
 		$ws->setCellValue( 'A' . $row, 'Simple Audit Checks' );
 		$ws->getStyle( 'A' . $row . ':C' . $row )->applyFromArray( [
@@ -537,9 +536,7 @@ class AuditExporter {
 			[ 'variable_type_distribution',         'Advisory', 'Distribution of variables by type. Flags any single type that exceeds 60% of all variables, which may indicate an unbalanced design system (e.g. hundreds of colors but no typography tokens). Always includes a summary distribution row.' ],
 		];
 
-		$check_defs = $simple_check_defs; // used below in the loop
-
-		foreach ( $check_defs as $i => $def ) {
+		foreach ( $simple_check_defs as $i => $def ) {
 			$ws->setCellValue( 'A' . $row, $def[0] );
 			$ws->setCellValue( 'B' . $row, $def[1] );
 			$ws->setCellValue( 'C' . $row, $def[2] );

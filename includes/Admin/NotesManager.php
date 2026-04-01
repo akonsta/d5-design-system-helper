@@ -20,6 +20,8 @@
 
 namespace D5DesignSystemHelper\Admin;
 
+use D5DesignSystemHelper\Util\DebugLogger;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -69,7 +71,11 @@ class NotesManager {
 			'suppress' => $suppress,
 		];
 
-		self::save( $key, $data );
+		try {
+			self::save( $key, $data );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to save note.' );
+		}
 		wp_send_json_success( [ 'key' => $key, 'data' => $data ] );
 	}
 
@@ -85,7 +91,11 @@ class NotesManager {
 			wp_send_json_error( [ 'message' => 'Invalid key.' ], 400 );
 		}
 
-		self::delete( $key );
+		try {
+			self::delete( $key );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to delete note.' );
+		}
 		wp_send_json_success( [ 'key' => $key ] );
 	}
 
@@ -96,7 +106,12 @@ class NotesManager {
 			wp_send_json_error( [ 'message' => 'Unauthorized' ], 403 );
 		}
 
-		wp_send_json_success( self::get_all() );
+		try {
+			$all = self::get_all();
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to load notes.' );
+		}
+		wp_send_json_success( $all );
 	}
 
 	// ── Static data API ───────────────────────────────────────────────────────

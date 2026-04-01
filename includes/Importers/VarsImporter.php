@@ -294,7 +294,7 @@ class VarsImporter {
 
 				$ctx     = 'Excel Variable ' . $id;
 				$label   = \D5DesignSystemHelper\Admin\SimpleImporter::sanitize_and_log( $label, $ctx, 'label' );
-				$value   = \D5DesignSystemHelper\Admin\SimpleImporter::sanitize_and_log( $value, $ctx, 'value' );
+				$value   = \D5DesignSystemHelper\Admin\SimpleImporter::sanitize_and_log( $value, $ctx, 'value', 'css_value' );
 				$status  = \D5DesignSystemHelper\Admin\SimpleImporter::sanitize_and_log( $status ?: 'active', $ctx, 'status', 'key' );
 
 				$records[] = [

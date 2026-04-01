@@ -1,0 +1,1 @@
+{"context":"et_builder","data":[],"presets":[],"global_colors":[],"global_variables":[{"id":"gvid-num-clamp-expr","label":"Fluid Spacing","value":"clamp(1px, expression(alert(document.cookie)), 100px)","order":"201","status":"active","lastUpdated":"2026-03-30T00:00:00.000Z","variableType":"numbers","type":"numbers"}],"canvases":[],"images":[],"thumbnails":[]}

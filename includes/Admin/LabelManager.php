@@ -57,6 +57,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 use D5DesignSystemHelper\Data\VarsRepository;
 use D5DesignSystemHelper\Data\PresetsRepository;
 use D5DesignSystemHelper\Exporters\VarsExporter;
+use D5DesignSystemHelper\Util\DebugLogger;
 
 /**
  * Class LabelManager
@@ -97,7 +98,12 @@ class LabelManager {
 			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
 		}
 
-		( new VarsExporter() )->stream_download();
+		try {
+			( new VarsExporter() )->stream_download();
+			// stream_download() exits on success — execution ends there.
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Variables XLSX export failed.' );
+		}
 	}
 
 	// ── AJAX: Load ─────────────────────────────────────────────────────────
@@ -114,12 +120,14 @@ class LabelManager {
 			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
 		}
 
-		$vars_repo    = new VarsRepository();
-		$presets_repo = new PresetsRepository();
-
-		$vars          = $vars_repo->get_all();
-		$global_colors = $this->get_global_colors( $presets_repo );
-
+		try {
+			$vars_repo    = new VarsRepository();
+			$presets_repo = new PresetsRepository();
+			$vars          = $vars_repo->get_all();
+			$global_colors = $this->get_global_colors( $presets_repo );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to load variables.' );
+		}
 		wp_send_json_success( [
 			'vars'          => $vars,
 			'global_colors' => $global_colors,
@@ -189,9 +197,12 @@ class LabelManager {
 		// gc_saved kept for API compatibility — colors now saved above via vars_list.
 		$gc_saved = false;
 
-		// Return the freshly-saved state for the frontend to re-render.
-		$updated_vars = $vars_repo->get_all();
-
+		try {
+			// Return the freshly-saved state for the frontend to re-render.
+			$updated_vars = $vars_repo->get_all();
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to save variables.' );
+		}
 		wp_send_json_success( [
 			'vars'          => $updated_vars,
 			'global_colors' => [],

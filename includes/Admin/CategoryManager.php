@@ -15,6 +15,8 @@
 
 namespace D5DesignSystemHelper\Admin;
 
+use D5DesignSystemHelper\Util\DebugLogger;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
@@ -47,10 +49,15 @@ class CategoryManager {
 		if ( ! current_user_can( self::CAPABILITY ) ) {
 			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
 		}
-		wp_send_json_success( [
-			'categories'   => $this->get_categories(),
-			'category_map' => $this->get_map(),
-		] );
+		try {
+			$result = [
+				'categories'   => $this->get_categories(),
+				'category_map' => $this->get_map(),
+			];
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to load categories.' );
+		}
+		wp_send_json_success( $result );
 	}
 
 	/**
@@ -91,9 +98,12 @@ class CategoryManager {
 				$map[ $dso_key ] = $filtered;
 			}
 		}
-		update_option( self::OPTION_MAP, $map, false );
-		update_option( self::OPTION_CATEGORIES, $cats, false );
-
+		try {
+			update_option( self::OPTION_MAP, $map, false );
+			update_option( self::OPTION_CATEGORIES, $cats, false );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to save categories.' );
+		}
 		wp_send_json_success( [
 			'categories'   => $cats,
 			'category_map' => $map,
@@ -131,8 +141,11 @@ class CategoryManager {
 				}
 			}
 		}
-		update_option( self::OPTION_MAP, $map, false );
-
+		try {
+			update_option( self::OPTION_MAP, $map, false );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Failed to save category assignments.' );
+		}
 		wp_send_json_success( [ 'category_map' => $map ] );
 	}
 

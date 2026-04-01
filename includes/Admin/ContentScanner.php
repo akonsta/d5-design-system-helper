@@ -73,6 +73,7 @@ namespace D5DesignSystemHelper\Admin;
 use D5DesignSystemHelper\Data\PresetsRepository;
 use D5DesignSystemHelper\Data\VarsRepository;
 use D5DesignSystemHelper\Util\DiviBlocParser;
+use D5DesignSystemHelper\Util\DebugLogger;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -153,7 +154,11 @@ class ContentScanner {
 			wp_send_json_error( [ 'message' => 'Unauthorized' ], 403 );
 		}
 
-		$report = $this->run();
+		try {
+			$report = $this->run();
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Content scan failed.' );
+		}
 		wp_send_json_success( $report );
 	}
 

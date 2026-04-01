@@ -40,6 +40,7 @@
 		} catch(e) {}
 		initModals();        // Must run first — wires help/settings/contact on every tab.
 		initSettingsSave();  // Save button in settings modal.
+		initDebugLogViewer(); // Debug log viewer (only active in debug mode).
 		// Mark body with debug-active class so help panel shifts below debug banner.
 		if ( document.querySelector( '.d5dsh-debug-banner' ) ) {
 			document.body.classList.add( 'd5dsh-debug-active' );
@@ -68,7 +69,75 @@
 		initCategories();
 		initMergeMode();
 		initStyleGuide();
+		initSecurityTest();
+		initJsErrorCapture();
 	} );
+
+	// ── JS error capture ─────────────────────────────────────────────────────
+
+	/**
+	 * Capture uncaught JS errors and unhandled promise rejections and POST them
+	 * to the server debug log when debug mode is active.
+	 *
+	 * Only fires when d5dtSettings.debugMode is true so there is zero overhead
+	 * in production.
+	 */
+	function initJsErrorCapture() {
+		if ( ! ( typeof d5dtSettings !== 'undefined' && d5dtSettings.debugMode ) ) {
+			return;
+		}
+
+		function sendJsError( payload ) {
+			try {
+				var fd = new FormData();
+				fd.append( 'action', 'd5dsh_log_js_error' );
+				fd.append( 'nonce',  d5dtSettings.nonce );
+				fd.append( 'body',   JSON.stringify( payload ) );
+				// Use sendBeacon when available so errors during page unload are captured.
+				if ( navigator.sendBeacon ) {
+					var blob = new Blob(
+						[ 'action=d5dsh_log_js_error&nonce=' + encodeURIComponent( d5dtSettings.nonce ) +
+						  '&body=' + encodeURIComponent( JSON.stringify( payload ) ) ],
+						{ type: 'application/x-www-form-urlencoded' }
+					);
+					navigator.sendBeacon( d5dtSettings.ajaxUrl, blob );
+				} else {
+					var xhr = new XMLHttpRequest();
+					xhr.open( 'POST', d5dtSettings.ajaxUrl, true );
+					xhr.setRequestHeader( 'Content-Type', 'application/x-www-form-urlencoded' );
+					xhr.send( 'action=d5dsh_log_js_error&nonce=' + encodeURIComponent( d5dtSettings.nonce ) +
+					           '&body=' + encodeURIComponent( JSON.stringify( payload ) ) );
+				}
+			} catch (e) {
+				// Never throw from the error handler.
+			}
+		}
+
+		window.addEventListener( 'error', function ( event ) {
+			sendJsError( {
+				type:    'error',
+				message: event.message  || 'Unknown error',
+				source:  event.filename || '',
+				lineno:  event.lineno   || 0,
+				colno:   event.colno    || 0,
+				stack:   ( event.error && event.error.stack ) ? event.error.stack : '',
+			} );
+		} );
+
+		window.addEventListener( 'unhandledrejection', function ( event ) {
+			var reason = event.reason;
+			var message = ( reason instanceof Error ) ? reason.message : String( reason );
+			var stack   = ( reason instanceof Error && reason.stack ) ? reason.stack : '';
+			sendJsError( {
+				type:    'unhandledrejection',
+				message: message,
+				source:  '',
+				lineno:  0,
+				colno:   0,
+				stack:   stack,
+			} );
+		} );
+	}
 
 	// ╔══════════════════════════════════════════════════════════════════════╗
 	// ║ SECTION 4 — EXPORT TAB                                               ║
@@ -1017,21 +1086,93 @@
 		if ( statusEl ) { statusEl.textContent = ''; statusEl.className = 'd5dsh-settings-save-status'; }
 	}
 
+	// ── Debug Log Viewer ─────────────────────────────────────────────────────
+
+	function initDebugLogViewer() {
+		var refreshBtn  = document.getElementById( 'd5dsh-debug-log-refresh' );
+		var clearBtn    = document.getElementById( 'd5dsh-debug-log-clear' );
+		var downloadBtn = document.getElementById( 'd5dsh-debug-log-download' );
+		var outputEl    = document.getElementById( 'd5dsh-debug-log-output' );
+		var metaEl      = document.getElementById( 'd5dsh-debug-log-meta' );
+		if ( ! refreshBtn || ! outputEl ) { return; }
+
+		function loadLog() {
+			outputEl.textContent = 'Loading…';
+			var url = d5dtSettings.ajaxUrl + '?action=d5dsh_debug_log_read&nonce=' +
+			          encodeURIComponent( d5dtSettings.nonce ) + '&lines=200';
+			fetch( url, { credentials: 'same-origin' } )
+				.then( function ( r ) { return r.json(); } )
+				.then( function ( data ) {
+					if ( data.success ) {
+						outputEl.textContent = data.data.lines || '(log is empty)';
+						outputEl.scrollTop   = outputEl.scrollHeight;
+						if ( metaEl ) {
+							metaEl.textContent = data.data.size_kb + ' KB — ' + data.data.path;
+						}
+					} else {
+						outputEl.textContent = 'Error: ' + ( data.data && data.data.message ? data.data.message : 'unknown' );
+					}
+				} )
+				.catch( function ( err ) { outputEl.textContent = 'Request failed: ' + err; } );
+		}
+
+		refreshBtn.addEventListener( 'click', loadLog );
+
+		clearBtn.addEventListener( 'click', function () {
+			if ( ! confirm( 'Clear the debug log? This cannot be undone.' ) ) { return; }
+			var fd = new FormData();
+			fd.append( 'action', 'd5dsh_debug_log_clear' );
+			fd.append( 'nonce',  d5dtSettings.nonce );
+			fetch( d5dtSettings.ajaxUrl, { method: 'POST', body: fd, credentials: 'same-origin' } )
+				.then( function ( r ) { return r.json(); } )
+				.then( function () { loadLog(); } )
+				.catch( function () {} );
+		} );
+
+		downloadBtn.addEventListener( 'click', function () {
+			var content = outputEl.textContent;
+			var blob    = new Blob( [ content ], { type: 'text/plain' } );
+			var a       = document.createElement( 'a' );
+			a.href      = URL.createObjectURL( blob );
+			a.download  = 'd5dsh-debug.log';
+			a.click();
+			URL.revokeObjectURL( a.href );
+		} );
+
+		// Auto-load when the advanced pane is shown.
+		var advancedTab = document.querySelector( '.d5dsh-modal-tab[data-tab="advanced"]' );
+		if ( advancedTab ) {
+			advancedTab.addEventListener( 'click', function () {
+				// Small delay to let the pane become visible first.
+				setTimeout( loadLog, 100 );
+			} );
+		}
+	}
+
 	function initSettingsSave() {
-		var saveBtn      = document.getElementById( 'd5dsh-settings-save' );
-		var statusEl     = document.getElementById( 'd5dsh-settings-save-status' );
-		var debugChk     = document.getElementById( 'd5dsh-setting-debug-mode' );
-		var betaChk      = document.getElementById( 'd5dsh-setting-beta-preview' );
-		var headerInput  = document.getElementById( 'd5dsh-setting-report-header' );
-		var footerInput  = document.getElementById( 'd5dsh-setting-report-footer' );
+		var saveBtn         = document.getElementById( 'd5dsh-settings-save' );
+		var statusEl        = document.getElementById( 'd5dsh-settings-save-status' );
+		var debugChk        = document.getElementById( 'd5dsh-setting-debug-mode' );
+		var betaChk         = document.getElementById( 'd5dsh-setting-beta-preview' );
+		var secTestChk      = document.getElementById( 'd5dsh-setting-security-testing' );
+		var headerInput     = document.getElementById( 'd5dsh-setting-report-header' );
+		var footerInput     = document.getElementById( 'd5dsh-setting-report-footer' );
 		if ( ! saveBtn ) { return; }
+
+		// Toggle the security test panel visibility immediately when the checkbox changes.
+		if ( secTestChk ) {
+			secTestChk.addEventListener( 'change', function () {
+				var p = document.getElementById( 'd5dsh-sectest-panel' );
+				if ( p ) { p.style.display = secTestChk.checked ? '' : 'none'; }
+			} );
+		}
 
 		// Enable Save button as soon as any setting changes.
 		function markDirty() {
 			saveBtn.disabled = false;
 			if ( statusEl ) { statusEl.textContent = ''; statusEl.className = 'd5dsh-settings-save-status'; }
 		}
-		[ debugChk, betaChk ].forEach( function ( el ) {
+		[ debugChk, betaChk, secTestChk ].forEach( function ( el ) {
 			if ( el ) { el.addEventListener( 'change', markDirty ); }
 		} );
 		[ headerInput, footerInput ].forEach( function ( el ) {
@@ -1048,11 +1189,12 @@
 
 			var siteAbbrInput = document.getElementById( 'd5dsh-setting-site-abbr' );
 			var payload = {
-				debug_mode:    debugChk ? debugChk.checked : false,
-				beta_preview:  betaChk  ? betaChk.checked  : false,
-				report_header: headerInput ? headerInput.value.trim() : '',
-				report_footer: footerInput ? footerInput.value.trim() : '',
-				site_abbr:     siteAbbrInput ? siteAbbrInput.value.trim() : '',
+				debug_mode:       debugChk    ? debugChk.checked    : false,
+				beta_preview:     betaChk     ? betaChk.checked     : false,
+				security_testing: secTestChk  ? secTestChk.checked  : false,
+				report_header:    headerInput ? headerInput.value.trim() : '',
+				report_footer:    footerInput ? footerInput.value.trim() : '',
+				site_abbr:        siteAbbrInput ? siteAbbrInput.value.trim() : '',
 			};
 
 			fetch( saveUrl, {
@@ -1299,7 +1441,7 @@
 				fetchHelpIndex();
 			} )
 			.catch( function () {
-				if ( body ) { body.innerHTML = '<p>Could not load user guide. Check your connection and try again.</p>'; }
+				if ( body ) { setElMsg( body, '', 'Could not load user guide. Check your connection and try again.' ); }
 			} );
 	}
 
@@ -1360,7 +1502,7 @@
 		}
 
 		if ( ! helpFuse ) {
-			resultsEl.innerHTML = '<p class="d5dsh-help-search-loading">Loading search index…</p>';
+			setElMsg( resultsEl, 'd5dsh-help-search-loading', 'Loading search index…' );
 			resultsEl.hidden = false;
 			if ( bodyEl ) { bodyEl.style.display = 'none'; }
 			return;
@@ -1368,7 +1510,7 @@
 
 		var results = helpFuse.search( query ).slice( 0, 8 );
 		if ( ! results.length ) {
-			resultsEl.innerHTML = '<p class="d5dsh-help-search-none">No results for <em>' + escHtml( query ) + '</em>.</p>';
+			var _srp = document.createElement( 'p' ); _srp.className = 'd5dsh-help-search-none'; _srp.appendChild( document.createTextNode( 'No results for ' ) ); var _srem = document.createElement( 'em' ); _srem.textContent = query; _srp.appendChild( _srem ); _srp.appendChild( document.createTextNode( '.' ) ); resultsEl.innerHTML = ''; resultsEl.appendChild( _srp );
 		} else {
 			var html = '<ul class="d5dsh-help-search-list">';
 			results.forEach( function ( r ) {
@@ -1420,6 +1562,26 @@
 	 */
 	function escAttr( str ) {
 		return String( str ).replace( /"/g, '&quot;' ).replace( /'/g, '&#039;' );
+	}
+
+	/**
+	 * Set a single-message paragraph inside a container element without using
+	 * innerHTML string concatenation.
+	 *
+	 * Preferred over `el.innerHTML = '<p class="...">' + escHtml(msg) + '</p>'`
+	 * because it uses textContent assignment — the browser never parses the
+	 * message as HTML, eliminating any residual XSS risk regardless of input.
+	 *
+	 * @param {Element} el        Target container element.
+	 * @param {string}  className CSS class(es) for the <p> element.
+	 * @param {string}  text      Plain-text message (not HTML).
+	 */
+	function setElMsg( el, className, text ) {
+		var p = document.createElement( 'p' );
+		if ( className ) { p.className = className; }
+		p.textContent = String( text );
+		el.innerHTML  = '';
+		el.appendChild( p );
 	}
 
 	// ── Data loading ──────────────────────────────────────────────────────────
@@ -4352,7 +4514,7 @@
 					if ( spinner ) { spinner.style.display = 'none'; }
 					if ( ! result ) { return; }
 					if ( ! json.success ) {
-						result.innerHTML = '<div class="d5dsh-validate-fatal"><strong>Error:</strong> ' + escHtml( json.data ? json.data.message : 'Unknown error' ) + '</div>';
+						result.innerHTML = ''; var _vfe = document.createElement( 'div' ); _vfe.className = 'd5dsh-validate-fatal'; var _vfs = document.createElement( 'strong' ); _vfs.textContent = 'Error: '; _vfe.appendChild( _vfs ); _vfe.appendChild( document.createTextNode( json.data ? json.data.message : 'Unknown error' ) ); result.appendChild( _vfe );
 						result.style.display = 'block';
 						return;
 					}
@@ -4363,7 +4525,7 @@
 					btn.disabled = false;
 					if ( spinner ) { spinner.style.display = 'none'; }
 					if ( result ) {
-						result.innerHTML = '<div class="d5dsh-validate-fatal">Request failed: ' + escHtml( err.message ) + '</div>';
+						result.innerHTML = ''; var _vfe2 = document.createElement( 'div' ); _vfe2.className = 'd5dsh-validate-fatal'; _vfe2.textContent = 'Request failed: ' + ( err.message || '' ); result.appendChild( _vfe2 );
 						result.style.display = 'block';
 					}
 				} );
@@ -7347,21 +7509,43 @@
 		var sanitizationLog = data.sanitization_log || [];
 		if ( sanitizationLog.length ) {
 			html += '<div class="d5dsh-si-sanitization-log">';
-			html += '<h4>&#9888; Sanitization Report (' + sanitizationLog.length + ' issue' + ( sanitizationLog.length !== 1 ? 's' : '' ) + ' cleaned)</h4>';
-			html += '<p class="d5dsh-si-sanitization-desc">The following values were modified during import to remove potentially unsafe content (HTML tags, scripts, or special characters). The cleaned values were imported; originals were not stored.</p>';
-			html += '<table><thead><tr>'
-				+ '<th>Context</th><th>Field</th><th>Original (excerpt)</th><th>Cleaned</th>'
-				+ '</tr></thead><tbody>';
-			sanitizationLog.forEach( function ( entry ) {
-				html += '<tr>'
-					+ '<td>' + escHtml( entry.context || '' ) + '</td>'
-					+ '<td>' + escHtml( entry.field   || '' ) + '</td>'
-					+ '<td class="d5dsh-si-sanitize-original">' + escHtml( entry.original  || '' ) + '</td>'
-					+ '<td class="d5dsh-si-sanitize-cleaned">'  + escHtml( entry.sanitized || '' ) + '</td>'
-					+ '</tr>';
-			} );
-			html += '</tbody></table>';
+			html += '<div class="d5dsh-san-header">';
+			html += '<span class="d5dsh-san-icon">&#9888;</span>';
+			html += '<strong>' + sanitizationLog.length + ' value' + ( sanitizationLog.length !== 1 ? 's' : '' ) + ' were modified during import</strong>';
 			html += '</div>';
+			html += '<p class="d5dsh-san-intro">Some values in the file contained content that could cause security problems on your site. WordPress automatically cleaned them before storing. Nothing dangerous was saved. Details for each modification are shown below.</p>';
+			sanitizationLog.forEach( function ( entry ) {
+				var outcome      = entry.outcome      || 'partial';
+				var outcomeClass = 'd5dsh-san-card--' + outcome;
+				var storedAs     = ( entry.sanitized && entry.sanitized !== '' ) ? entry.sanitized : '(empty — the entire value was removed)';
+				var refUrl       = entry.reference_url || '';
+				html += '<div class="d5dsh-san-card ' + escHtml( outcomeClass ) + '">';
+				// Card header
+				html += '<div class="d5dsh-san-card-head">';
+				html += '<span class="d5dsh-san-card-location">' + escHtml( entry.context || '' ) + ' &rsaquo; <em>' + escHtml( entry.field || '' ) + '</em></span>';
+				html += '<span class="d5dsh-san-card-badge d5dsh-san-badge--' + escHtml( outcome ) + '">' + escHtml( outcome.charAt(0).toUpperCase() + outcome.slice(1) ) + '</span>';
+				html += '</div>';
+				// What was found
+				html += '<div class="d5dsh-san-card-body">';
+				html += '<div class="d5dsh-san-row"><span class="d5dsh-san-label">What was found</span>';
+				html += '<span class="d5dsh-san-value"><code class="d5dsh-san-code">' + escHtml( ( entry.original || '' ).substring( 0, 300 ) ) + '</code></span></div>';
+				// Why it matters
+				html += '<div class="d5dsh-san-row"><span class="d5dsh-san-label">Why it matters</span>';
+				html += '<span class="d5dsh-san-value">' + escHtml( entry.threat_summary || '' );
+				if ( refUrl ) {
+					html += ' <a class="d5dsh-san-learn-more" href="' + escHtml( refUrl ) + '" target="_blank" rel="noopener">Learn&nbsp;more &#8599;</a>';
+				}
+				html += '</span></div>';
+				// What was done
+				html += '<div class="d5dsh-san-row"><span class="d5dsh-san-label">What was done</span>';
+				html += '<span class="d5dsh-san-value">' + escHtml( entry.outcome_detail || '' ) + '</span></div>';
+				// Stored as
+				html += '<div class="d5dsh-san-row"><span class="d5dsh-san-label">Stored as</span>';
+				html += '<span class="d5dsh-san-value"><code class="d5dsh-san-code d5dsh-san-code--stored">' + escHtml( storedAs.substring( 0, 300 ) ) + '</code></span></div>';
+				html += '</div>'; // .d5dsh-san-card-body
+				html += '</div>'; // .d5dsh-san-card
+			} );
+			html += '</div>'; // .d5dsh-si-sanitization-log
 		}
 
 		bodyEl.innerHTML = html;
@@ -7379,6 +7563,14 @@
 		var printBtn = document.getElementById( 'd5dsh-si-print-results-btn' );
 		if ( printBtn ) {
 			printBtn.onclick = function () { siPrintResults(); };
+		}
+
+		// Wire Export Security Report (.xlsx) button — only shown when sanitization log is non-empty.
+		var sanXlsxBtn = document.getElementById( 'd5dsh-si-export-san-xlsx-btn' );
+		if ( sanXlsxBtn ) {
+			var sanLog = ( data && data.sanitization_log ) ? data.sanitization_log : [];
+			sanXlsxBtn.style.display = sanLog.length ? '' : 'none';
+			sanXlsxBtn.onclick = function () { siExportSanitizationXlsx( sanLog ); };
 		}
 
 		openModal( 'd5dsh-si-results-modal' );
@@ -7596,6 +7788,63 @@
 		a.click();
 		document.body.removeChild( a );
 		URL.revokeObjectURL( url );
+	}
+
+	/**
+	 * Export the sanitization log to a formatted XLSX via the server-side AJAX endpoint.
+	 *
+	 * @param {Array} sanLog  The sanitization_log array from the import response.
+	 */
+	function siExportSanitizationXlsx( sanLog ) {
+		if ( ! sanLog || ! sanLog.length ) { return; }
+		if ( typeof d5dtSimpleImport === 'undefined' || ! d5dtSimpleImport.xlsxAction ) {
+			showToast( 'error', 'Not configured', 'Export endpoint is not available.' );
+			return;
+		}
+
+		var btn = document.getElementById( 'd5dsh-si-export-san-xlsx-btn' );
+		if ( btn ) {
+			btn.disabled    = true;
+			btn.textContent = 'Generating…';
+		}
+
+		var now      = new Date().toISOString().slice( 0, 19 ).replace( /[T:]/g, '-' );
+		var payload  = JSON.stringify( { log: sanLog, filename: 'd5dsh-sanitization-report-' + now } );
+		var url      = d5dtSimpleImport.ajaxUrl
+			+ '?action=' + encodeURIComponent( d5dtSimpleImport.xlsxAction )
+			+ '&nonce='  + encodeURIComponent( d5dtSimpleImport.xlsxNonce );
+
+		fetch( url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: payload,
+		} )
+			.then( function ( r ) {
+				if ( ! r.ok ) { throw new Error( 'Server error ' + r.status ); }
+				var cd = r.headers.get( 'Content-Disposition' ) || '';
+				var fnMatch = cd.match( /filename="([^"]+)"/ );
+				var dlName  = fnMatch ? fnMatch[ 1 ] : 'd5dsh-sanitization-report.xlsx';
+				return r.blob().then( function ( blob ) { return { blob: blob, name: dlName }; } );
+			} )
+			.then( function ( result ) {
+				var url = URL.createObjectURL( result.blob );
+				var a   = document.createElement( 'a' );
+				a.href     = url;
+				a.download = result.name;
+				document.body.appendChild( a );
+				a.click();
+				document.body.removeChild( a );
+				URL.revokeObjectURL( url );
+			} )
+			.catch( function ( err ) {
+				showToast( 'error', 'Export failed', err.message || 'Could not generate the report.' );
+			} )
+			.finally( function () {
+				if ( btn ) {
+					btn.disabled    = false;
+					btn.textContent = 'Export Security Report (.xlsx)';
+				}
+			} );
 	}
 
 	/**
@@ -8425,8 +8674,7 @@
 		if ( badgeEl ) { badgeEl.textContent = String( total ); }
 
 		if ( allRows.length === 0 ) {
-			bodyEl.innerHTML = '<p class="d5dsh-audit-clean">'
-				+ escHtml( cfg.emptyMsg || 'No data found.' ) + '</p>';
+			setElMsg( bodyEl, 'd5dsh-audit-clean', cfg.emptyMsg || 'No data found.' );
 			_sectionInitScrollWrap( cfg );
 			return;
 		}
@@ -8989,7 +9237,7 @@
 		if ( ! body ) { return; }
 
 		if ( total === 0 ) {
-			body.innerHTML = '<p class="d5dsh-audit-clean">No DSO references found in content.</p>';
+			setElMsg( body, 'd5dsh-audit-clean', 'No DSO references found in content.' );
 			return;
 		}
 
@@ -9219,7 +9467,7 @@
 		}
 
 		if ( contentRows.length === 0 ) {
-			body.innerHTML = '<p class="d5dsh-audit-clean">No content with DSO references found.</p>';
+			setElMsg( body, 'd5dsh-audit-clean', 'No content with DSO references found.' );
 			return;
 		}
 
@@ -9336,7 +9584,7 @@
 		var totalDsos   = varCount + presetCount;
 
 		if ( totalDsos === 0 ) {
-			body.innerHTML = '<p class="d5dsh-audit-clean">No DSO references found in content.</p>';
+			setElMsg( body, 'd5dsh-audit-clean', 'No DSO references found in content.' );
 			return;
 		}
 
@@ -9662,7 +9910,7 @@
 		if ( depsPane )   { depsPane.style.display   = 'none'; }
 
 		// Show spinner while loading.
-		if ( impactPane ) { impactPane.innerHTML = '<p class="d5dsh-impact-loading">Analyzing\u2026</p>'; }
+		if ( impactPane ) { setElMsg( impactPane, 'd5dsh-impact-loading', 'Analyzing\u2026' ); }
 		if ( depsPane )   { depsPane.innerHTML   = ''; }
 
 		openModal( 'd5dsh-impact-modal' );
@@ -9677,14 +9925,14 @@
 		.then( function ( r ) { return r.json(); } )
 		.then( function ( json ) {
 			if ( ! json.success ) {
-				if ( impactPane ) { impactPane.innerHTML = '<p class="d5dsh-impact-error">' + escHtml( json.data && json.data.message ? json.data.message : 'Analysis failed.' ) + '</p>'; }
+				if ( impactPane ) { setElMsg( impactPane, 'd5dsh-impact-error', json.data && json.data.message ? json.data.message : 'Analysis failed.' ); }
 				return;
 			}
 			renderImpactPane( json.data );
 			renderDepsPane( json.data );
 		} )
 		.catch( function () {
-			if ( impactPane ) { impactPane.innerHTML = '<p class="d5dsh-impact-error">Request failed.</p>'; }
+			if ( impactPane ) { setElMsg( impactPane, 'd5dsh-impact-error', 'Request failed.' ); }
 		} );
 	}
 
@@ -9807,7 +10055,7 @@
 		var pane = document.getElementById( 'd5dsh-deps-pane' );
 		if ( ! pane ) { return; }
 		var tree = data.dep_tree;
-		if ( ! tree ) { pane.innerHTML = '<p class="d5dsh-impact-empty">No dependency data.</p>'; return; }
+		if ( ! tree ) { setElMsg( pane, 'd5dsh-impact-empty', 'No dependency data.' ); return; }
 		pane.innerHTML = '<div class="d5dsh-tree-root">' + _buildImpactTreeNode( tree, true ) + '</div>';
 	}
 
@@ -10481,7 +10729,7 @@
 		var assigned = pendingCatMap[ dsoKey ] ? ( Array.isArray( pendingCatMap[ dsoKey ] ) ? pendingCatMap[ dsoKey ] : [ pendingCatMap[ dsoKey ] ] ) : [];
 
 		if ( categoriesData.length === 0 ) {
-			panel.innerHTML = '<p class="d5dsh-cat-cb-empty">No categories defined yet.</p>';
+			setElMsg( panel, 'd5dsh-cat-cb-empty', 'No categories defined yet.' );
 		} else {
 			categoriesData.forEach( function ( cat ) {
 				var checked = assigned.indexOf( cat.id ) !== -1;
@@ -10727,15 +10975,21 @@
 		var vars = ( manageData && manageData.vars ) ? manageData.vars : [];
 		var v = null;
 		for ( var i = 0; i < vars.length; i++ ) { if ( vars[i].id === varId ) { v = vars[i]; break; } }
-		if ( ! v ) { displayEl.innerHTML = '<em>' + escHtml( varId ) + '</em>'; return; }
-		var swatchHtml = ( v.type === 'colors' && v.value )
-			? '<span class="d5dsh-color-swatch-inline" style="background:' + escHtml( v.value ) + '"></span>'
-			: '';
-		displayEl.innerHTML =
-			'<strong>' + escHtml( v.label || varId ) + '</strong>'
-			+ ' ' + swatchHtml
-			+ '<br><code>' + escHtml( v.id ) + '</code>'
-			+ '<br><span class="d5dsh-type-badge">' + escHtml( v.type || '' ) + '</span>';
+		if ( ! v ) {
+			displayEl.innerHTML = '';
+			var _em = document.createElement( 'em' ); _em.textContent = varId; displayEl.appendChild( _em );
+			return;
+		}
+		displayEl.innerHTML = '';
+		var _strong = document.createElement( 'strong' ); _strong.textContent = v.label || varId; displayEl.appendChild( _strong );
+		if ( v.type === 'colors' && v.value ) {
+			var _swatch = document.createElement( 'span' ); _swatch.className = 'd5dsh-color-swatch-inline';
+			_swatch.style.background = v.value; displayEl.appendChild( document.createTextNode( ' ' ) ); displayEl.appendChild( _swatch );
+		}
+		displayEl.appendChild( document.createElement( 'br' ) );
+		var _code = document.createElement( 'code' ); _code.textContent = v.id; displayEl.appendChild( _code );
+		displayEl.appendChild( document.createElement( 'br' ) );
+		var _badge = document.createElement( 'span' ); _badge.className = 'd5dsh-type-badge'; _badge.textContent = v.type || ''; displayEl.appendChild( _badge );
 	}
 
 	function _loadMergePreview() {
@@ -10755,7 +11009,7 @@
 			if ( ! json.success || ! impactBody ) { return; }
 			var presets = json.data.affected_presets || [];
 			if ( presets.length === 0 ) {
-				impactBody.innerHTML = '<p>No presets reference this variable.</p>';
+				setElMsg( impactBody, '', 'No presets reference this variable.' );
 			} else {
 				var rows = presets.map( function ( p ) {
 					return '<tr><td><code>' + escHtml( p.preset_id ) + '</code></td><td>' + escHtml( p.preset_label ) + '</td><td>' + escHtml( p.module_name ) + '</td></tr>';
@@ -10793,7 +11047,7 @@
 		if ( typeof d5dtManage === 'undefined' ) { return; }
 		var preview  = document.getElementById( 'd5dsh-styleguide-preview' );
 		var exportBar = document.getElementById( 'd5dsh-sg-export-bar' );
-		if ( preview ) { preview.innerHTML = '<p class="d5dsh-sg-placeholder">Generating…</p>'; }
+		if ( preview ) { setElMsg( preview, 'd5dsh-sg-placeholder', 'Generating…' ); }
 		if ( exportBar ) { exportBar.style.display = 'none'; }
 
 		var showSystem  = document.getElementById( 'd5dsh-sg-show-system' );
@@ -10804,7 +11058,7 @@
 		.then( function ( r ) { return r.json(); } )
 		.then( function ( json ) {
 			if ( ! json.success ) {
-				if ( preview ) { preview.innerHTML = '<p class="d5dsh-sg-placeholder">Failed to load style guide data.</p>'; }
+				if ( preview ) { setElMsg( preview, 'd5dsh-sg-placeholder', 'Failed to load style guide data.' ); }
 				return;
 			}
 			_sgData = json.data;
@@ -11243,5 +11497,193 @@
 		getCategoryMap:       function () { return ( typeof categoryMap   !== 'undefined' ) ? categoryMap   : {}; },
 		getCategoriesData:    function () { return ( typeof categoriesData !== 'undefined' ) ? categoriesData : []; },
 	};
+
+	// ╔══════════════════════════════════════════════════════════════════════╗
+	// ║ SECTION 22 — SECURITY TESTING PANEL                                  ║
+	// ╚══════════════════════════════════════════════════════════════════════╝
+
+	function initSecurityTest() {
+		var panel = document.getElementById( 'd5dsh-sectest-panel' );
+		if ( ! panel ) { return; }
+
+		var runBtn      = document.getElementById( 'd5dsh-sectest-run-btn' );
+		var dirInput    = document.getElementById( 'd5dsh-sectest-dir' );
+		var fileInput   = document.getElementById( 'd5dsh-sectest-files' );
+		var verboseChk  = document.getElementById( 'd5dsh-sectest-verbose' );
+		var resultsWrap = document.getElementById( 'd5dsh-sectest-results' );
+		var summaryEl   = document.getElementById( 'd5dsh-sectest-summary' );
+		var tbodyEl     = document.getElementById( 'd5dsh-sectest-tbody' );
+		var statusEl    = document.getElementById( 'd5dsh-sectest-status' );
+		var spinner     = document.getElementById( 'd5dsh-sectest-spinner' );
+		var dlBtn       = document.getElementById( 'd5dsh-sectest-download-btn' );
+		var reportPath  = document.getElementById( 'd5dsh-sectest-report-path' );
+
+		if ( ! runBtn ) { return; }
+
+		var _lastReport = null;
+
+		// Wire download button.
+		if ( dlBtn ) {
+			dlBtn.addEventListener( 'click', function () {
+				if ( ! _lastReport ) { return; }
+				var blob = new Blob( [ JSON.stringify( _lastReport, null, 2 ) ], { type: 'application/json' } );
+				var a    = document.createElement( 'a' );
+				a.href     = URL.createObjectURL( blob );
+				a.download = 'security-test-report.json';
+				a.click();
+				URL.revokeObjectURL( a.href );
+			} );
+		}
+
+		runBtn.addEventListener( 'click', function () {
+			var dir     = dirInput  ? dirInput.value.trim() : '';
+			var verbose = verboseChk ? verboseChk.checked   : false;
+			var files   = fileInput  ? fileInput.files      : null;
+
+			if ( ! dir && ( ! files || files.length === 0 ) ) {
+				alert( 'Please enter a server directory path or select fixture files to upload.' );
+				return;
+			}
+
+			var fd = new FormData();
+			fd.append( 'action', 'd5dsh_security_test' );
+			fd.append( 'nonce',  ( window.d5dtSecTest && d5dtSecTest.nonce ) ? d5dtSecTest.nonce : '' );
+			fd.append( 'verbose', verbose ? '1' : '0' );
+
+			if ( files && files.length > 0 ) {
+				for ( var i = 0; i < files.length; i++ ) {
+					fd.append( 'files[]', files[ i ] );
+				}
+			} else {
+				fd.append( 'dir', dir );
+			}
+
+			runBtn.disabled = true;
+			runBtn.textContent = 'Running…';
+			if ( spinner )   { spinner.style.display = ''; }
+			if ( statusEl )  { statusEl.textContent  = ''; }
+			if ( resultsWrap ) { resultsWrap.style.display = 'none'; }
+
+			fetch( ( window.d5dtSecTest && d5dtSecTest.ajaxUrl ) ? d5dtSecTest.ajaxUrl : ajaxurl, {
+				method:      'POST',
+				credentials: 'same-origin',
+				body:        fd,
+			} )
+				.then( function ( r ) { return r.json(); } )
+				.then( function ( resp ) {
+					if ( ! resp.success ) {
+						if ( statusEl ) {
+							var errMsg = ( resp.data && resp.data.message ) ? resp.data.message : ( resp.data || 'Request failed.' );
+							statusEl.textContent = errMsg;
+							statusEl.style.color = '#d63638';
+						}
+						return;
+					}
+					_lastReport = resp.data;
+					renderSecTestReport( resp.data, summaryEl, tbodyEl, reportPath );
+					if ( resultsWrap ) { resultsWrap.style.display = ''; }
+				} )
+				.catch( function ( err ) {
+					if ( statusEl ) {
+						statusEl.textContent = 'Network error: ' + ( err.message || String( err ) );
+						statusEl.style.color = '#d63638';
+					}
+				} )
+				.finally( function () {
+					runBtn.disabled = false;
+					runBtn.textContent = 'Run Security Tests';
+					if ( spinner ) { spinner.style.display = 'none'; }
+				} );
+		} );
+	}
+
+	/**
+	 * Populate the pre-existing security test result elements.
+	 *
+	 * @param {Object}  report     Response data from d5dsh_security_test.
+	 * @param {Element} summaryEl  #d5dsh-sectest-summary element.
+	 * @param {Element} tbodyEl    #d5dsh-sectest-tbody element.
+	 * @param {Element} reportPath #d5dsh-sectest-report-path element.
+	 */
+	function renderSecTestReport( report, summaryEl, tbodyEl, reportPath ) {
+		var meta    = report.meta    || {};
+		var summary = report.summary || {};
+		var results = report.results || [];
+
+		var passCount = summary.pass            || 0;
+		var failCount = summary.fail            || 0;
+		var total     = summary.total           || 0;
+		var sanCount  = summary.total_sanitized || 0;
+
+		// Summary bar.
+		if ( summaryEl ) {
+			summaryEl.className = 'd5dsh-sectest-summary ' + ( failCount > 0 ? 'd5dsh-sectest-summary-fail' : 'd5dsh-sectest-summary-pass' );
+			var sumHtml = '<strong>' + total + ' fixture' + ( total !== 1 ? 's' : '' ) + '</strong> — ';
+			sumHtml += '<span class="d5dsh-sectest-pass">' + passCount + ' pass</span> / ';
+			sumHtml += '<span class="d5dsh-sectest-fail">' + failCount + ' fail</span>';
+			if ( sanCount > 0 ) {
+				sumHtml += ' / <span class="d5dsh-sectest-san">' + sanCount + ' field' + ( sanCount !== 1 ? 's' : '' ) + ' sanitized</span>';
+			}
+			sumHtml += ' <span class="d5dsh-sectest-meta">— WP ' + escHtml( meta.wp_version || '' ) + ' · PHP ' + escHtml( meta.php_version || '' ) + '</span>';
+			summaryEl.innerHTML = sumHtml;
+		}
+
+		// Report path label.
+		if ( reportPath && report._report_file ) {
+			reportPath.textContent = report._report_file;
+		}
+
+		// Populate tbody.
+		if ( tbodyEl ) {
+			var tbodyHtml = '';
+			results.forEach( function ( r ) {
+				var statusClass = r.status === 'ok' ? 'd5dsh-sectest-ok'
+					: ( r.status === 'no_handler' ? 'd5dsh-sectest-warn' : 'd5dsh-sectest-fail' );
+				var statusLabel = r.status === 'ok' ? 'PASS'
+					: ( r.status === 'no_handler' ? 'WARN' : 'FAIL' );
+				var sanLen = r.sanitization_log ? r.sanitization_log.length : 0;
+
+				tbodyHtml += '<tr>';
+				tbodyHtml += '<td><code class="d5dsh-sectest-filename">' + escHtml( r.file || '' ) + '</code></td>';
+				tbodyHtml += '<td><span class="d5dsh-sectest-badge ' + statusClass + '">' + statusLabel + '</span></td>';
+				tbodyHtml += '<td>' + escHtml( r.detected_type || '—' ) + '</td>';
+				tbodyHtml += '<td>' + ( r.new || 0 ) + '</td>';
+				tbodyHtml += '<td>' + ( r.updated || 0 ) + '</td>';
+				tbodyHtml += '<td>' + sanLen + '</td>';
+				tbodyHtml += '<td>' + escHtml( r.message || '' ) + '</td>';
+				tbodyHtml += '</tr>';
+
+				if ( sanLen > 0 ) {
+					tbodyHtml += '<tr class="d5dsh-sectest-san-row"><td colspan="7">';
+					tbodyHtml += '<details><summary class="d5dsh-sectest-san-summary">&#9888; ' + sanLen + ' field' + ( sanLen !== 1 ? 's' : '' ) + ' sanitized — click to review</summary>';
+					tbodyHtml += '<div class="d5dsh-san-cards-inline">';
+					r.sanitization_log.forEach( function ( entry ) {
+						var outcome      = entry.outcome || 'partial';
+						var outcomeClass = 'd5dsh-san-card--' + outcome;
+						var storedAs     = ( entry.sanitized && entry.sanitized !== '' ) ? entry.sanitized : '(empty — value removed)';
+						var refUrl       = entry.reference_url || '';
+						tbodyHtml += '<div class="d5dsh-san-card d5dsh-san-card--compact ' + escHtml( outcomeClass ) + '">';
+						tbodyHtml += '<div class="d5dsh-san-card-head">';
+						tbodyHtml += '<span class="d5dsh-san-card-location">' + escHtml( entry.context || '' ) + ' &rsaquo; <em>' + escHtml( entry.field || '' ) + '</em></span>';
+						tbodyHtml += '<span class="d5dsh-san-card-badge d5dsh-san-badge--' + escHtml( outcome ) + '">' + escHtml( outcome.charAt(0).toUpperCase() + outcome.slice(1) ) + '</span>';
+						tbodyHtml += '</div>';
+						tbodyHtml += '<div class="d5dsh-san-card-body">';
+						tbodyHtml += '<div class="d5dsh-san-row"><span class="d5dsh-san-label">Found</span><span class="d5dsh-san-value"><code class="d5dsh-san-code">' + escHtml( ( entry.original || '' ).substring( 0, 200 ) ) + '</code></span></div>';
+						tbodyHtml += '<div class="d5dsh-san-row"><span class="d5dsh-san-label">Why</span><span class="d5dsh-san-value">' + escHtml( entry.threat_summary || '' );
+						if ( refUrl ) {
+							tbodyHtml += ' <a class="d5dsh-san-learn-more" href="' + escHtml( refUrl ) + '" target="_blank" rel="noopener">Learn&nbsp;more &#8599;</a>';
+						}
+						tbodyHtml += '</span></div>';
+						tbodyHtml += '<div class="d5dsh-san-row"><span class="d5dsh-san-label">Action</span><span class="d5dsh-san-value">' + escHtml( entry.outcome_detail || '' ) + '</span></div>';
+						tbodyHtml += '<div class="d5dsh-san-row"><span class="d5dsh-san-label">Stored as</span><span class="d5dsh-san-value"><code class="d5dsh-san-code d5dsh-san-code--stored">' + escHtml( storedAs.substring( 0, 200 ) ) + '</code></span></div>';
+						tbodyHtml += '</div></div>';
+					} );
+					tbodyHtml += '</div></details>';
+					tbodyHtml += '</td></tr>';
+				}
+			} );
+			tbodyEl.innerHTML = tbodyHtml;
+		}
+	}
 
 } )();
