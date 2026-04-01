@@ -34,6 +34,8 @@ composer.phar
 
 # Divi-native security test fixtures (third-party product testing artifacts)
 tests/fixtures/security/d5 tests/
+tests/fixtures/security/Divi-5-Launch-Freebie_Global-Variables.json
+tests/fixtures/security/Divi-5-Launch-Freebie_Presets.json
 
 # Claude Code local settings, ignore rules, and worktree artifacts
 .claude/
