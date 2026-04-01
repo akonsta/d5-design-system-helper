@@ -2,6 +2,7 @@
 
 | Version | Date | Notes |
 |---------|------|-------|
+| 0.1.2 | 2026-04-01 | Pre-Import Audit; first-run setup wizard; expanded report settings; security hardening; debug system; audit worksheet fixes; 570 tests |
 | 0.1.1.2 | 2026-03-31 | Import security hardening (CSS value sanitization, wp_unslash, multiline fix, zip traversal guard); admin.js DOM API conversions; security report risk reclassifications |
 | 0.1.1.1 | 2026-03-31 | Security hardening; debug/error-trapping system |
 | 0.1.0 | 2026-03-27 | Initial public release |
@@ -251,6 +252,30 @@ Click **Import** to commit. Before writing anything, the plugin automatically ta
 
 Import is **non-destructive**: items that are in your database but not in the Excel file are left untouched. The file only needs to contain the items you want to add or update.
 
+### Pre-Import Audit
+
+Before clicking Import, you can run a health check on the staged file to catch problems before they reach your database. Click **Pre-Import Audit** (next to the Import button in the toolbar) after the file has been analysed.
+
+The audit compares the staged file against your live site and runs five checks:
+
+| Tier | Check | What it tests |
+|---|---|---|
+| **Error** | `broken_refs_in_file` | Presets in the file reference variable IDs that do not exist in the file or on the live site |
+| **Warning** | `conflict_overwrite` | Items in the file share an ID with existing items on the site — they will overwrite them |
+| **Warning** | `label_clash` | Items in the file share a label with existing items that have a *different* ID — potential duplicates in the editor |
+| **Advisory** | `orphaned_in_file` | Variables defined in the file are not referenced by any preset in the file |
+| **Advisory** | `naming_convention` | Variables in the file use a different naming convention from the existing variables on the site |
+
+Results appear in a **Pre-Import Audit** panel just below the analysis area. A summary bar shows the count of Errors, Warnings, and Advisories. Each tier is expandable and shows a table of findings.
+
+**Import button warning** — if the audit finds Errors, the Import button gains a red border and a tooltip note. This is advisory only: you can still import, but the warning draws attention to the issues first.
+
+**Download Report (.xlsx)** — click this button in the audit panel header to export the full audit results as an Excel workbook.
+
+**Closing the panel** — click × in the panel header to dismiss it. The panel also clears automatically when you click **Go Back** or upload a new file.
+
+The Pre-Import Audit runs against the file already in the import queue — it does not require a re-upload and does not modify anything.
+
 ### Undo an import
 
 If you need to reverse an import, go to the **Snapshots** tab. The snapshot taken immediately before the import is listed there and can be restored in one click.
@@ -266,6 +291,8 @@ Use JSON when you want to move data between sites, or when you need a full backu
 ### Importing JSON files
 
 The **Import** tab accepts Divi-native JSON files and zip archives. Drag and drop your file into the drop zone. The file type is detected automatically. A per-file analysis card shows what the file contains before you commit.
+
+After analysis, the **Pre-Import Audit** button is available in the toolbar. Click it to run the same five-check audit described in [Section 8 — Pre-Import Audit](#8-importing-from-excel) before committing the import.
 
 After analysis, a **Convert to Excel** button appears on the file card. This converts the JSON into an Excel workbook so you can review and edit the data. The Excel file produced can be imported directly through the main Import panel.
 
@@ -401,7 +428,9 @@ Click **Delete** to permanently remove a snapshot. Up to 10 snapshots are kept p
 
 <div class="d5dsh-beta-doc-block">This tab requires <strong>Beta Preview</strong> to be enabled in Settings.</div>
 
-The **Analysis** tab runs health checks and content analysis against your active Divi design system. It has two sub-sections: **Analysis** and **Content Scan**.
+The **Analysis** tab runs health checks and content analysis against your **active Divi design system** (the data already saved on this site). It has two sub-sections: **Analysis** and **Content Scan**.
+
+> **Note:** The Analysis tab always audits the live site data. To audit a file *before* you import it, use the **Pre-Import Audit** button in the Import tab (see [Section 8 — Pre-Import Audit](#8-importing-from-excel)).
 
 ### Analysis — Design System Health Check
 
@@ -442,6 +471,8 @@ The Analysis section runs a live audit of your design system. Choose **Simple Au
 Each tier panel shows a sortable, filterable table of findings. Each row shows the affected DSO ID, label, and a description of the issue. When a Content Scan has been run in the same session, two additional columns appear automatically: **DSO Uses** (how many content items reference that DSO) and **Used In** (the titles of those content items).
 
 **Exporting results** — an export bar appears at the top of the results when the audit has run. You can export the entire audit report, or use the per-tier export bar to export only Errors, only Warnings, or only Advisories. Export formats: Print, Excel (.xlsx), CSV.
+
+The Excel workbook includes a **Summary** sheet listing each check with its tier, a **Checks Run** count (number of items inspected), and a **Findings** count (number of issues found). Individual tier sheets (Errors, Warnings, Advisories) contain the detailed finding rows.
 
 ### Content Scan
 
@@ -656,15 +687,62 @@ The **Style Guide** tab (positioned between Analysis and Snapshots in the top na
 
 ## 19. Settings
 
-Click the **gear icon** (⚙) in the top-right corner of the plugin to open the Settings modal. Settings are organized in five tabs:
+Click the **gear icon** (⚙) in the top-right corner of the plugin to open the Settings modal. Settings are organized in five tabs. All settings except Print (localStorage) are saved to the WordPress database via AJAX when you click **Save Settings**. If you close the modal without saving, all changes are reverted to their previous values.
+
+If this is your first time opening the plugin, the **First-Run Setup Wizard** opens automatically before the Settings modal. See [Section 26](#26-first-run-setup-wizard).
 
 ### General
 
-| Setting | What it does |
+**Report Header**
+
+Controls what appears at the top of every printed report and exported file. Four options are available:
+
+| Mode | What is shown |
 |---|---|
-| Report Header | Optional text shown at the top of printed reports and saved report files |
-| Report Footer | Optional text shown in the footer of printed reports alongside the page number |
-| Site Abbreviation | Short identifier used in all exported file names. Auto-generated from the site name if left blank |
+| Plugin + site name *(default)* | `D5 Design System Helper — {Your Site Name}` |
+| Site name only | Your WordPress site name |
+| Custom text | Free text you enter in the field |
+| No header | The header area is suppressed entirely |
+
+The **Report Header** text field is used only when the **Custom text** mode is selected. Leave the field blank when using any other mode.
+
+**Report Footer**
+
+Controls what appears at the bottom of every printed report. Four options are available:
+
+| Mode | What is shown |
+|---|---|
+| Date + page number *(default)* | Formatted date on the left, page number on the right |
+| Page number only | Page number on the right, left side blank |
+| Custom text + page number | Your custom text on the left, page number on the right |
+| No footer | The footer area is suppressed entirely |
+
+The **Report Footer** text field is used only when the **Custom text + page number** mode is selected.
+
+**Date format** (shown when footer mode includes a date)
+
+| Option | Example |
+|---|---|
+| D MMM YYYY *(default)* | 31 Mar 2026 |
+| MMM D, YYYY | Mar 31, 2026 |
+| YYYY-MM-DD | 2026-03-31 |
+| DD/MM/YYYY | 31/03/2026 |
+| MM/DD/YYYY | 03/31/2026 |
+| WordPress format | Uses the date format set in WordPress Settings → General |
+
+**Page number format** (shown when footer mode includes a page number)
+
+| Option | Example |
+|---|---|
+| Page x of n *(default)* | Page 1 of 5 |
+| Page x | Page 1 |
+| x of n | 1 of 5 |
+| x | 1 |
+| No page number | *(page number omitted)* |
+
+**Site Abbreviation**
+
+A short identifier used as a prefix in all exported file names (letters, numbers, and underscores only; maximum 20 characters). Leave blank to use the slug automatically generated from your WordPress site name. The auto-generated slug is shown as a placeholder in the field.
 
 ### Appearance
 
@@ -700,8 +778,6 @@ The viewer also shows the log file size in KB and its server path (`d5dsh-logs/d
 
 Displays the plugin name, version, description, copyright, and a link to the GitHub repository. No interactive elements.
 
-All settings except Print (localStorage) are saved to the WordPress database via AJAX when you click **Save Settings**. If you close the Settings modal without saving, all changes are reverted to their previous values.
-
 ---
 
 ## 20. Beta Features
@@ -728,7 +804,6 @@ Currently in beta:
 - **Export Excel** — download the current filtered view as an Excel workbook. Available in Variables, Group Presets, Element Presets, All Presets, and Everything.
 
 **Features within the Import tab:**
-- **Import Audit button** — generate an audit report directly from a JSON file uploaded to the Import tab.
 - **Download blank import templates** — download blank `.xlsx` templates for manual data entry without exporting first.
 
 Beta features are fully functional but may have rough edges or change before their final release.
@@ -1084,6 +1159,57 @@ These appear in the browser's Network tab on the JSON response from a failing AJ
 | Log viewer shows "Click Refresh to load log…" | Refresh has not been clicked yet — the viewer does not auto-load | Click **Refresh** |
 | Log viewer shows an empty pane after Refresh | The log file exists but is empty, or was just cleared | This is normal after **Clear Log** |
 | Log viewer reports "Debug mode is not active." | Settings were saved with debug off but the page has not reloaded | Reload the WP Admin page |
+
+---
+
+## 26. First-Run Setup Wizard
+
+When you open the plugin for the first time, a **Setup Wizard** opens automatically. It walks you through five steps to configure the settings most relevant to everyday use. The wizard never opens again once you complete or skip it.
+
+### Steps
+
+**Step 1 — Site Identity**
+
+| Field | Description |
+|---|---|
+| Site / Organisation Name | Pre-filled from your WordPress site name. Used to generate the default report header. |
+| File Name Prefix | Short slug used in all exported file names (max 20 characters). Leave blank to use the auto-generated slug shown as a placeholder. |
+
+As you type in the Site Name field, the file name prefix placeholder and the header preview update live.
+
+**Step 2 — Report Header**
+
+Choose what appears at the top of every report:
+
+| Option | Example |
+|---|---|
+| Plugin + site name | `D5 Design System Helper — Acme Corp` |
+| Site name only | `Acme Corp` |
+| Custom text | Free text you enter |
+| No header | Header area suppressed |
+
+**Step 3 — Report Footer**
+
+Choose what appears at the bottom of every report, and select your preferred date and page number formats. The available date and page number format options are the same as those described in [Section 19 → General](#general).
+
+**Step 4 — Optional Features**
+
+| Feature | Default | Description |
+|---|---|---|
+| Beta Preview | Off | Enables the Analysis, Style Guide, and Snapshots tabs, plus advanced editing features |
+| Debug Mode | Off | Writes detailed error information to a log file. Only turn on when troubleshooting. |
+
+**Step 5 — Summary**
+
+Shows a live preview of the report header and footer as they will actually appear in printed output, along with a summary of all choices made. Click **Save & Get Started** to apply.
+
+### Skipping the wizard
+
+Click **Skip setup** at any time to close the wizard without saving. A dismissible notice will appear on the main plugin page reminding you that all of these settings are available in **Settings → General** (⚙ icon, top right).
+
+### Re-accessing settings after setup
+
+All settings configured in the wizard are available at any time via the ⚙ Settings icon. The wizard itself will not reopen — it is a one-time flow.
 
 ---
 

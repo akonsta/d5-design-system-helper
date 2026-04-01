@@ -51,7 +51,7 @@ class AuditExporter {
 		}
 
 		// Sheet column inventory for the Info sheet (built before sheets exist — that's fine).
-		$summary_cols = [ 'Run at (UTC)', 'Audit Type', 'Variables', 'Colors', 'Presets', 'Content scanned', '— (Tier summary: Tier, Checks, Total Items, Suppressed)' ];
+		$summary_cols = [ 'Run at (UTC)', 'Audit Type', 'Variables', 'Colors', 'Presets', 'Content scanned', '— (Tier summary: Tier, Checks Run, Findings, Suppressed)' ];
 		if ( $is_full ) {
 			$summary_cols[] = 'Variable Type Distribution chart';
 		}
@@ -649,7 +649,7 @@ class AuditExporter {
 		$r++;
 
 		// Tier summary table
-		$tier_headers = [ 'Tier', 'Checks', 'Total Items', 'Suppressed' ];
+		$tier_headers = [ 'Tier', 'Checks Run', 'Findings', 'Suppressed' ];
 		ExportUtil::write_header_row_at( $ws, $tier_headers, $r );
 		$r++;
 
@@ -660,9 +660,9 @@ class AuditExporter {
 		];
 
 		foreach ( $tier_map as $tier ) {
-			$checks     = $report[ $tier['key'] ] ?? [];
-			$n_checks   = count( $checks );
-			$n_items    = 0;
+			$checks       = $report[ $tier['key'] ] ?? [];
+			$n_checks     = count( $checks );
+			$n_items      = 0;
 			$n_suppressed = 0;
 			foreach ( $checks as $check ) {
 				$items = $check['items'] ?? [];

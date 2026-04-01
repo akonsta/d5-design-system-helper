@@ -39,6 +39,7 @@
 			}
 		} catch(e) {}
 		initModals();        // Must run first — wires help/settings/contact on every tab.
+		initWizard();        // First-run setup wizard (no-op if setup_complete is true).
 		initSettingsSave();  // Save button in settings modal.
 		initDebugLogViewer(); // Debug log viewer (only active in debug mode).
 		// Mark body with debug-active class so help panel shifts below debug banner.
@@ -1253,6 +1254,342 @@
 				showToast( 'error', 'Save failed', 'Network error: ' + err.message );
 			} );
 		} );
+	}
+
+	// ── First-run setup wizard ────────────────────────────────────────────────
+	function initWizard() {
+		if ( ! d5dtSettings || d5dtSettings.setupComplete ) { return; }
+
+		var modal     = document.getElementById( 'd5dsh-wizard-modal' );
+		var steps     = modal ? modal.querySelectorAll( '.d5dsh-wizard-step' ) : [];
+		var dots      = modal ? modal.querySelectorAll( '.d5dsh-wizard-step-dot' ) : [];
+		var nextBtn   = document.getElementById( 'd5dsh-wiz-next' );
+		var backBtn   = document.getElementById( 'd5dsh-wiz-back' );
+		var saveBtn   = document.getElementById( 'd5dsh-wiz-save' );
+		var skipBtn   = document.getElementById( 'd5dsh-wiz-skip' );
+		var statusEl  = document.getElementById( 'd5dsh-wiz-save-status' );
+
+		if ( ! modal || ! steps.length ) { return; }
+
+		var currentStep = 1;
+		var totalSteps  = steps.length;
+
+		function goTo( step ) {
+			steps.forEach( function ( el ) {
+				el.style.display = ( parseInt( el.dataset.step, 10 ) === step ) ? '' : 'none';
+			} );
+			dots.forEach( function ( dot, i ) {
+				var s = i + 1;
+				dot.classList.toggle( 'd5dsh-wizard-dot-active', s === step );
+				dot.classList.toggle( 'd5dsh-wizard-dot-done',   s < step );
+			} );
+			if ( backBtn ) { backBtn.style.display = ( step > 1 ) ? '' : 'none'; }
+			if ( nextBtn ) { nextBtn.style.display = ( step < totalSteps ) ? '' : 'none'; }
+			if ( saveBtn ) { saveBtn.style.display = ( step === totalSteps ) ? '' : 'none'; }
+			currentStep = step;
+			if ( step === totalSteps ) { updatePreview(); }
+		}
+
+		// Step 1: live-update the abbr preview code element as user types site name.
+		var nameInput  = document.getElementById( 'd5dsh-wiz-site-name' );
+		var abbrInput  = document.getElementById( 'd5dsh-wiz-site-abbr' );
+		var abbrPreview = document.getElementById( 'd5dsh-wiz-abbr-preview' );
+		if ( nameInput && abbrPreview ) {
+			nameInput.addEventListener( 'input', function () {
+				if ( abbrInput && abbrInput.value.trim() ) { return; } // user already set abbr
+				var slug = nameInput.value.toLowerCase().replace( /[^a-z0-9]+/gi, '_' ).replace( /^_+|_+$/g, '' ) || 'site_name';
+				abbrPreview.textContent = slug.slice( 0, 20 );
+				// Also update header example that shows site name.
+				var exDefault = document.getElementById( 'd5dsh-wiz-header-ex-default' );
+				var exSite    = document.getElementById( 'd5dsh-wiz-header-ex-site' );
+				if ( exDefault ) { exDefault.textContent = 'D5 Design System Helper \u2014 ' + nameInput.value; }
+				if ( exSite )    { exSite.textContent    = nameInput.value; }
+			} );
+		}
+
+		// Step 2: enable/disable custom header input.
+		modal.querySelectorAll( 'input[name="d5dsh-wiz-header-mode"]' ).forEach( function ( radio ) {
+			radio.addEventListener( 'change', function () {
+				var customInput = document.getElementById( 'd5dsh-wiz-header-custom' );
+				if ( customInput ) { customInput.disabled = ( radio.value !== 'custom' ); }
+			} );
+		} );
+
+		// Step 3: enable/disable custom footer input + show/hide format selects.
+		modal.querySelectorAll( 'input[name="d5dsh-wiz-footer-mode"]' ).forEach( function ( radio ) {
+			radio.addEventListener( 'change', function () {
+				var customInput  = document.getElementById( 'd5dsh-wiz-footer-custom' );
+				var formatsBlock = document.getElementById( 'd5dsh-wiz-footer-formats' );
+				if ( customInput )  { customInput.disabled  = ( radio.value !== 'custom_page' ); }
+				if ( formatsBlock ) { formatsBlock.style.display = ( radio.value === 'none' || radio.value === 'page' ) ? 'none' : ''; }
+				// For page-only mode, hide date format select but keep page format.
+				if ( formatsBlock ) {
+					var dateRow = formatsBlock.querySelector( '#d5dsh-wiz-date-format' );
+					if ( dateRow && dateRow.closest( 'label' ) ) {
+						dateRow.closest( 'label' ).style.display = ( radio.value === 'date_page' || radio.value === 'custom_page' ) ? '' : 'none';
+					}
+				}
+			} );
+		} );
+
+		// Build a formatted date string from a format key.
+		function formatDate( fmtKey ) {
+			var now = new Date();
+			var months = [ 'Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec' ];
+			var d = now.getDate();
+			var m = now.getMonth();
+			var y = now.getFullYear();
+			var dd  = String( d ).padStart( 2, '0' );
+			var mm  = String( m + 1 ).padStart( 2, '0' );
+			switch ( fmtKey ) {
+				case 'dmy':       return d + ' ' + months[ m ] + ' ' + y;
+				case 'mdy':       return months[ m ] + ' ' + d + ', ' + y;
+				case 'ymd':       return y + '-' + mm + '-' + dd;
+				case 'short_dmy': return dd + '/' + mm + '/' + y;
+				case 'short_mdy': return mm + '/' + dd + '/' + y;
+				case 'wp':        return d5dtSettings.wpDateFormat || ( d + ' ' + months[ m ] + ' ' + y );
+				default:          return d + ' ' + months[ m ] + ' ' + y;
+			}
+		}
+
+		// Build page number string from format key.
+		function formatPage( fmtKey ) {
+			switch ( fmtKey ) {
+				case 'page_x_of_n': return 'Page 1 of 5';
+				case 'page_x':      return 'Page 1';
+				case 'x_of_n':      return '1 of 5';
+				case 'x':           return '1';
+				case 'none':        return '';
+				default:            return 'Page 1 of 5';
+			}
+		}
+
+		// Resolve effective header text from current wizard state.
+		function resolveHeader() {
+			var mode       = modal.querySelector( 'input[name="d5dsh-wiz-header-mode"]:checked' );
+			var modeVal    = mode ? mode.value : 'default';
+			var siteName   = nameInput ? nameInput.value.trim() : ( d5dtSettings.blogName || '' );
+			var customInp  = document.getElementById( 'd5dsh-wiz-header-custom' );
+			switch ( modeVal ) {
+				case 'default': return 'D5 Design System Helper \u2014 ' + siteName;
+				case 'site':    return siteName;
+				case 'custom':  return customInp ? customInp.value.trim() : '';
+				case 'none':    return '';
+			}
+			return '';
+		}
+
+		// Build footer left text.
+		function resolveFooterLeft() {
+			var mode      = modal.querySelector( 'input[name="d5dsh-wiz-footer-mode"]:checked' );
+			var modeVal   = mode ? mode.value : 'date_page';
+			var dateSel   = document.getElementById( 'd5dsh-wiz-date-format' );
+			var customInp = document.getElementById( 'd5dsh-wiz-footer-custom' );
+			switch ( modeVal ) {
+				case 'date_page':   return formatDate( dateSel ? dateSel.value : 'dmy' );
+				case 'page':        return '';
+				case 'custom_page': return customInp ? customInp.value.trim() : '';
+				case 'none':        return '';
+			}
+			return '';
+		}
+
+		// Build footer right text.
+		function resolveFooterRight() {
+			var mode    = modal.querySelector( 'input[name="d5dsh-wiz-footer-mode"]:checked' );
+			var modeVal = mode ? mode.value : 'date_page';
+			if ( modeVal === 'none' ) { return ''; }
+			var pageSel = document.getElementById( 'd5dsh-wiz-page-format' );
+			return formatPage( pageSel ? pageSel.value : 'page_x_of_n' );
+		}
+
+		function updatePreview() {
+			var headerEl      = document.getElementById( 'd5dsh-wiz-preview-header' );
+			var footerLeftEl  = document.getElementById( 'd5dsh-wiz-preview-footer-left' );
+			var footerRightEl = document.getElementById( 'd5dsh-wiz-preview-footer-right' );
+			var summaryEl     = document.getElementById( 'd5dsh-wiz-summary-details' );
+
+			var hdr = resolveHeader();
+			var fl  = resolveFooterLeft();
+			var fr  = resolveFooterRight();
+
+			if ( headerEl )      { headerEl.textContent      = hdr || '(no header)'; headerEl.style.color = hdr ? '' : '#a7aaad'; }
+			if ( footerLeftEl )  { footerLeftEl.textContent  = fl; }
+			if ( footerRightEl ) { footerRightEl.textContent = fr; }
+
+			if ( summaryEl ) {
+				var abbrVal = abbrInput && abbrInput.value.trim()
+					? abbrInput.value.trim()
+					: ( abbrPreview ? abbrPreview.textContent : 'site_name' );
+				var betaChk  = document.getElementById( 'd5dsh-wiz-beta' );
+				var debugChk = document.getElementById( 'd5dsh-wiz-debug' );
+				summaryEl.innerHTML = '';
+				var rows = [
+					[ 'Site name',       nameInput ? nameInput.value.trim() : '' ],
+					[ 'File prefix',     abbrVal ],
+					[ 'Report header',   hdr || '\u2014 none \u2014' ],
+					[ 'Footer left',     fl  || '\u2014 none \u2014' ],
+					[ 'Footer right',    fr  || '\u2014 none \u2014' ],
+					[ 'Beta Preview',    ( betaChk && betaChk.checked )  ? 'On' : 'Off' ],
+					[ 'Debug Mode',      ( debugChk && debugChk.checked ) ? 'On' : 'Off' ],
+				];
+				rows.forEach( function ( row ) {
+					var p = document.createElement( 'p' );
+					p.style.margin = '0';
+					var strong = document.createElement( 'strong' );
+					strong.textContent = row[0] + ': ';
+					p.appendChild( strong );
+					p.appendChild( document.createTextNode( row[1] ) );
+					summaryEl.appendChild( p );
+				} );
+			}
+		}
+
+		// Collect wizard values and POST to ajax_save_settings.
+		function saveWizard() {
+			var mode      = modal.querySelector( 'input[name="d5dsh-wiz-header-mode"]:checked' );
+			var fMode     = modal.querySelector( 'input[name="d5dsh-wiz-footer-mode"]:checked' );
+			var dateSel   = document.getElementById( 'd5dsh-wiz-date-format' );
+			var pageSel   = document.getElementById( 'd5dsh-wiz-page-format' );
+			var betaChk   = document.getElementById( 'd5dsh-wiz-beta' );
+			var debugChk  = document.getElementById( 'd5dsh-wiz-debug' );
+			var customHdr = document.getElementById( 'd5dsh-wiz-header-custom' );
+			var customFtr = document.getElementById( 'd5dsh-wiz-footer-custom' );
+
+			var headerMode = mode  ? mode.value  : 'default';
+			var footerMode = fMode ? fMode.value : 'date_page';
+
+			// Resolve stored header text.
+			var headerText = '';
+			if ( headerMode === 'custom' && customHdr ) { headerText = customHdr.value.trim(); }
+
+			// Resolve stored footer text.
+			var footerText = '';
+			if ( footerMode === 'custom_page' && customFtr ) { footerText = customFtr.value.trim(); }
+
+			var abbrVal = abbrInput && abbrInput.value.trim() ? abbrInput.value.trim() : '';
+
+			var payload = {
+				site_name:          nameInput ? nameInput.value.trim() : '',
+				site_abbr:          abbrVal,
+				report_header:      headerText,
+				report_header_mode: headerMode,
+				report_footer:      footerText,
+				report_footer_mode: footerMode,
+				footer_date_format: dateSel ? dateSel.value : 'dmy',
+				footer_page_format: pageSel ? pageSel.value : 'page_x_of_n',
+				beta_preview:       !! ( betaChk && betaChk.checked ),
+				debug_mode:         !! ( debugChk && debugChk.checked ),
+				security_testing:   !! d5dtSettings.securityTesting,
+				setup_complete:     true,
+			};
+
+			if ( saveBtn ) { saveBtn.disabled = true; }
+			if ( statusEl ) { statusEl.textContent = ''; statusEl.className = 'd5dsh-wizard-save-status'; }
+
+			fetch( d5dtSettings.ajaxUrl + '?action=d5dsh_save_settings&nonce=' + encodeURIComponent( d5dtSettings.nonce ), {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify( payload ),
+			} )
+			.then( function ( r ) { return r.json(); } )
+			.then( function ( json ) {
+				if ( json.success ) {
+					// Update in-memory settings.
+					d5dtSettings.setupComplete      = true;
+					d5dtSettings.reportHeaderMode   = payload.report_header_mode;
+					d5dtSettings.reportFooterMode   = payload.report_footer_mode;
+					d5dtSettings.footerDateFormat   = payload.footer_date_format;
+					d5dtSettings.footerPageFormat   = payload.footer_page_format;
+					d5dtSettings.reportHeader       = payload.report_header;
+					d5dtSettings.reportFooter       = payload.report_footer;
+					if ( abbrVal ) { d5dtSettings.siteAbbr = abbrVal; }
+					d5dtSettings.betaPreview = payload.beta_preview;
+					applyBetaState( payload.beta_preview );
+					closeModal( 'd5dsh-wizard-modal' );
+					showToast( 'success', 'Setup complete', 'Your settings have been saved. You can update them any time via the ⚙ Settings icon.' );
+					if ( payload.debug_mode !== !! d5dtSettings.debugMode ) {
+						setTimeout( function () { window.location.reload(); }, 1200 );
+					}
+				} else {
+					if ( saveBtn ) { saveBtn.disabled = false; }
+					if ( statusEl ) {
+						statusEl.textContent = 'Save failed — please try again.';
+						statusEl.className   = 'd5dsh-wizard-save-status is-error';
+					}
+				}
+			} )
+			.catch( function () {
+				if ( saveBtn ) { saveBtn.disabled = false; }
+				if ( statusEl ) {
+					statusEl.textContent = 'Network error — please try again.';
+					statusEl.className   = 'd5dsh-wizard-save-status is-error';
+				}
+			} );
+		}
+
+		// Wire navigation buttons.
+		if ( nextBtn ) {
+			nextBtn.addEventListener( 'click', function () {
+				if ( currentStep < totalSteps ) { goTo( currentStep + 1 ); }
+			} );
+		}
+		if ( backBtn ) {
+			backBtn.addEventListener( 'click', function () {
+				if ( currentStep > 1 ) { goTo( currentStep - 1 ); }
+			} );
+		}
+		if ( saveBtn ) {
+			saveBtn.addEventListener( 'click', saveWizard );
+		}
+
+		// Skip: mark setup complete silently, close, show notice.
+		if ( skipBtn ) {
+			skipBtn.addEventListener( 'click', function () {
+				fetch( d5dtSettings.ajaxUrl + '?action=d5dsh_save_settings&nonce=' + encodeURIComponent( d5dtSettings.nonce ), {
+					method: 'POST',
+					headers: { 'Content-Type': 'application/json' },
+					body: JSON.stringify( {
+						debug_mode:       !! d5dtSettings.debugMode,
+						beta_preview:     !! d5dtSettings.betaPreview,
+						security_testing: !! d5dtSettings.securityTesting,
+						report_header:    d5dtSettings.reportHeader    || '',
+						report_footer:    d5dtSettings.reportFooter    || '',
+						site_abbr:        d5dtSettings.siteAbbr        || '',
+						setup_complete:   true,
+					} ),
+				} ).catch( function () {} ); // Best-effort; do not block the UI.
+
+				d5dtSettings.setupComplete = true;
+				closeModal( 'd5dsh-wizard-modal' );
+
+				// Show a persistent notice pointing to Settings.
+				var noticeArea = document.querySelector( '.d5dsh-tab-content' );
+				if ( noticeArea ) {
+					var notice = document.createElement( 'div' );
+					notice.className = 'notice notice-info is-dismissible d5dsh-wizard-skip-notice';
+					notice.style.margin = '12px 0 0';
+					var p = document.createElement( 'p' );
+					p.textContent = 'Setup skipped. You can configure the report header, footer, and file prefix any time via the \u2699 Settings icon at the top right.';
+					notice.appendChild( p );
+					// Dismissible button (WP style).
+					var dismissBtn = document.createElement( 'button' );
+					dismissBtn.type      = 'button';
+					dismissBtn.className = 'notice-dismiss';
+					var dismissSpan = document.createElement( 'span' );
+					dismissSpan.className    = 'screen-reader-text';
+					dismissSpan.textContent  = 'Dismiss this notice.';
+					dismissBtn.appendChild( dismissSpan );
+					dismissBtn.addEventListener( 'click', function () { notice.remove(); } );
+					notice.appendChild( dismissBtn );
+					noticeArea.insertBefore( notice, noticeArea.firstChild );
+				}
+			} );
+		}
+
+		// Open wizard on first load.
+		goTo( 1 );
+		openModal( 'd5dsh-wizard-modal' );
 	}
 
 	/**
@@ -5513,40 +5850,22 @@
 			} );
 		}
 
-		// Action-row Audit button — runs audit and downloads a CSV report directly.
+		// Action-row Pre-Import Audit button.
 		var auditBtn = document.getElementById( 'd5dsh-si-audit-btn' );
 		if ( auditBtn ) {
-			auditBtn.addEventListener( 'click', function () {
-				var origText = auditBtn.textContent;
-				auditBtn.disabled    = true;
-				auditBtn.textContent = 'Running\u2026';
+			auditBtn.addEventListener( 'click', piaRun );
+		}
 
-				var fd = new FormData();
-				fd.append( 'action', 'd5dsh_audit_run' );
-				fd.append( 'nonce',  d5dtAudit.nonce );
+		// Pre-Import Audit panel close button.
+		var piaCloseBtn = document.getElementById( 'd5dsh-pia-close-btn' );
+		if ( piaCloseBtn ) {
+			piaCloseBtn.addEventListener( 'click', piaClose );
+		}
 
-				fetch( d5dtAudit.ajaxUrl, { method: 'POST', body: fd } )
-					.then( function ( r ) { return r.json(); } )
-					.then( function ( json ) {
-						if ( ! json.success ) {
-							showToast( 'error', 'Audit failed', ( json.data && json.data.message ) || 'Unknown error' );
-							return;
-						}
-						var data  = json.data;
-						auditStreamXlsx( data );
-
-						auditBtn.textContent = 'Done!';
-						setTimeout( function () {
-							auditBtn.disabled    = false;
-							auditBtn.textContent = origText;
-						}, 2500 );
-					} )
-					.catch( function () {
-						showToast( 'error', 'Audit failed', 'Network error — could not reach server.' );
-						auditBtn.disabled    = false;
-						auditBtn.textContent = origText;
-					} );
-			} );
+		// Pre-Import Audit XLSX download button.
+		var piaXlsxBtn = document.getElementById( 'd5dsh-pia-xlsx-btn' );
+		if ( piaXlsxBtn ) {
+			piaXlsxBtn.addEventListener( 'click', piaDownloadXlsx );
 		}
 
 		// Header Print / Download buttons.
@@ -6444,9 +6763,248 @@
 		var headerUtils = document.getElementById( 'd5dsh-si-header-utils' );
 		if ( headerUtils ) { headerUtils.style.display = 'none'; }
 
-		// Reset import button label.
+		// Reset import button label and warning indicator.
 		var importBtn = document.getElementById( 'd5dsh-si-import-btn' );
-		if ( importBtn ) { importBtn.textContent = 'Import'; }
+		if ( importBtn ) {
+			importBtn.textContent = 'Import';
+			importBtn.classList.remove( 'd5dsh-pia-import-warning' );
+			importBtn.title = '';
+		}
+
+		// Close the pre-import audit panel.
+		piaClose();
+	}
+
+	// ── Pre-Import Audit (PIA) ────────────────────────────────────────────────
+
+	/** Last audit report — used for XLSX download. */
+	var piaLastReport = null;
+
+	/**
+	 * Run the pre-import audit against the staged file.
+	 */
+	function piaRun() {
+		if ( typeof d5dtSimpleImport === 'undefined' ) { return; }
+
+		var panel    = document.getElementById( 'd5dsh-pia-panel' );
+		var body     = document.getElementById( 'd5dsh-pia-body' );
+		var filename = document.getElementById( 'd5dsh-pia-filename' );
+		var xlsxBtn  = document.getElementById( 'd5dsh-pia-xlsx-btn' );
+		if ( ! panel || ! body ) { return; }
+
+		piaLastReport = null;
+		if ( xlsxBtn ) { xlsxBtn.style.display = 'none'; }
+		if ( filename ) { filename.textContent = siLastFilename ? '\u2014 ' + siLastFilename : ''; }
+
+		body.innerHTML = '';
+		var spinner = document.createElement( 'span' );
+		spinner.className = 'spinner is-active';
+		spinner.style.cssText = 'float:none;margin-right:6px';
+		var label = document.createElement( 'span' );
+		label.textContent = 'Running audit\u2026';
+		body.appendChild( spinner );
+		body.appendChild( label );
+
+		panel.style.display = 'block';
+
+		var fd = new FormData();
+		fd.append( 'action', 'd5dsh_pre_import_audit' );
+		fd.append( 'nonce',  d5dtSimpleImport.nonce );
+
+		fetch( d5dtSimpleImport.ajaxUrl, { method: 'POST', body: fd } )
+			.then( function ( r ) { return r.json(); } )
+			.then( function ( json ) {
+				if ( ! json.success ) {
+					body.innerHTML = '';
+					var p = document.createElement( 'p' );
+					p.className = 'd5dsh-pia-error';
+					p.textContent = ( json.data && json.data.message ) || 'Audit failed.';
+					body.appendChild( p );
+					return;
+				}
+				piaLastReport = json.data;
+				piaRenderReport( json.data );
+				if ( xlsxBtn ) { xlsxBtn.style.display = 'inline-block'; }
+				piaUpdateImportBtn( json.data );
+			} )
+			.catch( function ( err ) {
+				body.innerHTML = '';
+				var p = document.createElement( 'p' );
+				p.className = 'd5dsh-pia-error';
+				p.textContent = 'Network error: ' + ( err.message || 'unknown' );
+				body.appendChild( p );
+			} );
+	}
+
+	/**
+	 * Render the audit report inside the PIA panel body.
+	 *
+	 * @param {object} report  Audit report (errors/warnings/advisories/meta).
+	 */
+	function piaRenderReport( report ) {
+		var body = document.getElementById( 'd5dsh-pia-body' );
+		if ( ! body ) { return; }
+		body.innerHTML = '';
+
+		var meta   = report.meta || {};
+		var errors = report.errors     || [];
+		var warns  = report.warnings   || [];
+		var advs   = report.advisories || [];
+
+		var totalFindings = 0;
+		[ errors, warns, advs ].forEach( function ( tier ) {
+			tier.forEach( function ( check ) {
+				totalFindings += ( check.items || [] ).length;
+			} );
+		} );
+
+		// Summary bar.
+		var summary = document.createElement( 'div' );
+		summary.className = 'd5dsh-pia-summary';
+
+		var pills = [
+			{ label: 'Errors',      count: errors.reduce( function ( n, c ) { return n + c.items.length; }, 0 ), cls: 'error'    },
+			{ label: 'Warnings',    count: warns.reduce(  function ( n, c ) { return n + c.items.length; }, 0 ), cls: 'warning'  },
+			{ label: 'Advisories',  count: advs.reduce(   function ( n, c ) { return n + c.items.length; }, 0 ), cls: 'advisory' },
+		];
+
+		pills.forEach( function ( p ) {
+			var pill = document.createElement( 'span' );
+			pill.className = 'd5dsh-pia-pill d5dsh-pia-pill-' + p.cls;
+			pill.textContent = p.count + ' ' + p.label;
+			summary.appendChild( pill );
+		} );
+
+		var metaSpan = document.createElement( 'span' );
+		metaSpan.className = 'd5dsh-pia-meta';
+		metaSpan.textContent = meta.file_vars + ' vars, ' + meta.file_presets + ' presets in file \u2022 site has ' + meta.site_vars + ' vars, ' + meta.site_presets + ' presets';
+		summary.appendChild( metaSpan );
+
+		body.appendChild( summary );
+
+		if ( totalFindings === 0 ) {
+			var ok = document.createElement( 'p' );
+			ok.className = 'd5dsh-pia-ok';
+			ok.textContent = '\u2713 No issues found. This file is clear to import.';
+			body.appendChild( ok );
+			return;
+		}
+
+		// Render each tier.
+		var tierDefs = [
+			{ key: 'errors',     checks: errors, label: 'Errors',     cls: 'error'    },
+			{ key: 'warnings',   checks: warns,  label: 'Warnings',   cls: 'warning'  },
+			{ key: 'advisories', checks: advs,   label: 'Advisories', cls: 'advisory' },
+		];
+
+		tierDefs.forEach( function ( tier ) {
+			if ( ! tier.checks.length ) { return; }
+			var anyItems = tier.checks.some( function ( c ) { return c.items && c.items.length; } );
+			if ( ! anyItems ) { return; }
+
+			var section = document.createElement( 'div' );
+			section.className = 'd5dsh-pia-tier d5dsh-pia-tier-' + tier.cls;
+
+			var heading = document.createElement( 'h4' );
+			heading.className = 'd5dsh-pia-tier-heading';
+			heading.textContent = tier.label;
+			section.appendChild( heading );
+
+			tier.checks.forEach( function ( check ) {
+				if ( ! check.items || ! check.items.length ) { return; }
+
+				var checkName = document.createElement( 'p' );
+				checkName.className = 'd5dsh-pia-check-name';
+				checkName.textContent = check.check.replace( /_/g, ' ' );
+				section.appendChild( checkName );
+
+				var table = document.createElement( 'table' );
+				table.className = 'd5dsh-pia-table';
+
+				var thead = table.createTHead();
+				var hrow  = thead.insertRow();
+				[ 'ID', 'Label', 'Type', 'Detail' ].forEach( function ( h ) {
+					var th = document.createElement( 'th' );
+					th.textContent = h;
+					hrow.appendChild( th );
+				} );
+
+				var tbody = table.createTBody();
+				check.items.forEach( function ( item ) {
+					var row = tbody.insertRow();
+					[ item.id || '', item.label || '', item.var_type || '', item.detail || '' ].forEach( function ( val ) {
+						var td = row.insertCell();
+						td.textContent = val;
+					} );
+				} );
+
+				section.appendChild( table );
+			} );
+
+			body.appendChild( section );
+		} );
+	}
+
+	/**
+	 * Update the Import button with a warning indicator if errors were found.
+	 *
+	 * @param {object} report
+	 */
+	function piaUpdateImportBtn( report ) {
+		var importBtn = document.getElementById( 'd5dsh-si-import-btn' );
+		if ( ! importBtn ) { return; }
+		var errorCount = ( report.errors || [] ).reduce( function ( n, c ) { return n + c.items.length; }, 0 );
+		if ( errorCount > 0 ) {
+			importBtn.classList.add( 'd5dsh-pia-import-warning' );
+			importBtn.title = 'Pre-import audit found ' + errorCount + ' error' + ( errorCount === 1 ? '' : 's' ) + ' \u2014 review the audit before importing.';
+		} else {
+			importBtn.classList.remove( 'd5dsh-pia-import-warning' );
+			importBtn.title = '';
+		}
+	}
+
+	/**
+	 * Close and clear the pre-import audit panel.
+	 */
+	function piaClose() {
+		var panel    = document.getElementById( 'd5dsh-pia-panel' );
+		var body     = document.getElementById( 'd5dsh-pia-body' );
+		var xlsxBtn  = document.getElementById( 'd5dsh-pia-xlsx-btn' );
+		if ( panel )   { panel.style.display = 'none'; }
+		if ( body )    { body.innerHTML = ''; }
+		if ( xlsxBtn ) { xlsxBtn.style.display = 'none'; }
+		piaLastReport = null;
+	}
+
+	/**
+	 * Stream the last pre-import audit report as XLSX.
+	 */
+	function piaDownloadXlsx() {
+		if ( ! piaLastReport || typeof d5dtSimpleImport === 'undefined' ) { return; }
+
+		var url = d5dtSimpleImport.ajaxUrl
+			+ '?action=d5dsh_pre_import_audit_xlsx'
+			+ '&nonce=' + encodeURIComponent( d5dtSimpleImport.nonce );
+
+		fetch( url, {
+			method:  'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body:    JSON.stringify( { report: piaLastReport } ),
+		} )
+		.then( function ( res ) {
+			if ( ! res.ok ) { throw new Error( 'HTTP ' + res.status ); }
+			return res.blob();
+		} )
+		.then( function ( blob ) {
+			var a      = document.createElement( 'a' );
+			a.href     = URL.createObjectURL( blob );
+			a.download = 'd5dsh-pre-import-audit.xlsx';
+			a.click();
+			URL.revokeObjectURL( a.href );
+		} )
+		.catch( function ( err ) {
+			showToast( 'error', 'Download failed', err.message || 'Could not generate XLSX.' );
+		} );
 	}
 
 	/**

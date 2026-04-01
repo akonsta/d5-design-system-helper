@@ -38,6 +38,8 @@ use D5DesignSystemHelper\Admin\SimpleImporter;
 use D5DesignSystemHelper\Data\VarsRepository;
 use D5DesignSystemHelper\Data\PresetsRepository;
 use D5DesignSystemHelper\Admin\AuditEngine;
+use D5DesignSystemHelper\Admin\AuditExporter;
+use D5DesignSystemHelper\Admin\PreImportAuditor;
 use D5DesignSystemHelper\Admin\ContentScanner;
 use D5DesignSystemHelper\Admin\HelpManager;
 use D5DesignSystemHelper\Admin\NotesManager;
@@ -127,6 +129,10 @@ class AdminPage {
 		add_action( 'wp_ajax_d5dsh_audit_run_full', [ $audit, 'ajax_run_full'    ] );
 		add_action( 'wp_ajax_d5dsh_audit_xlsx',     [ $audit, 'ajax_audit_xlsx'  ] );
 		add_action( 'wp_ajax_d5dsh_scan_xlsx',      [ $audit, 'ajax_scan_xlsx'   ] );
+
+		// Register Pre-Import Audit AJAX endpoints.
+		add_action( 'wp_ajax_d5dsh_pre_import_audit',      [ $this, 'ajax_pre_import_audit'      ] );
+		add_action( 'wp_ajax_d5dsh_pre_import_audit_xlsx', [ $this, 'ajax_pre_import_audit_xlsx' ] );
 
 		// Register Content Scanner AJAX endpoint.
 		$scanner = new ContentScanner();
@@ -317,16 +323,22 @@ class AdminPage {
 		$blog_slug  = trim( $blog_slug, '_' );
 		$site_abbr  = ! empty( $settings['site_abbr'] ) ? $settings['site_abbr'] : $blog_slug;
 		wp_localize_script( 'd5dsh-admin', 'd5dtSettings', [
-			'ajaxUrl'          => admin_url( 'admin-ajax.php' ),
-			'nonce'            => wp_create_nonce( self::NONCE_SETTINGS ),
-			'debugMode'        => ! empty( $settings['debug_mode'] ),
-			'betaPreview'      => ! empty( $settings['beta_preview'] ),
-			'securityTesting'  => ! empty( $settings['security_testing'] ),
-			'siteUrl'          => home_url(),
-			'reportHeader'     => $settings['report_header'] ?? '',
-			'reportFooter'     => $settings['report_footer'] ?? '',
-			'siteAbbr'         => $site_abbr,
-			'blogName'         => $blog_name,
+			'ajaxUrl'            => admin_url( 'admin-ajax.php' ),
+			'nonce'              => wp_create_nonce( self::NONCE_SETTINGS ),
+			'debugMode'          => ! empty( $settings['debug_mode'] ),
+			'betaPreview'        => ! empty( $settings['beta_preview'] ),
+			'securityTesting'    => ! empty( $settings['security_testing'] ),
+			'siteUrl'            => home_url(),
+			'reportHeader'       => $settings['report_header'] ?? '',
+			'reportHeaderMode'   => $settings['report_header_mode'] ?? 'default',
+			'reportFooter'       => $settings['report_footer'] ?? '',
+			'reportFooterMode'   => $settings['report_footer_mode'] ?? 'date_page',
+			'footerDateFormat'   => $settings['footer_date_format'] ?? 'dmy',
+			'footerPageFormat'   => $settings['footer_page_format'] ?? 'page_x_of_n',
+			'siteAbbr'           => $site_abbr,
+			'blogName'           => $blog_name,
+			'wpDateFormat'       => get_option( 'date_format', 'F j, Y' ),
+			'setupComplete'      => ! empty( $settings['setup_complete'] ),
 		] );
 		wp_localize_script( 'd5dsh-admin', 'd5dtSecTest', [
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
@@ -756,12 +768,17 @@ class AdminPage {
 		}
 		return array_merge(
 			[
-				'debug_mode'        => false,
-				'beta_preview'      => false,
-				'security_testing'  => false,
-				'report_header'     => '',
-				'report_footer'     => '',
-				'site_abbr'         => '',
+				'debug_mode'          => false,
+				'beta_preview'        => false,
+				'security_testing'    => false,
+				'report_header'       => '',
+				'report_header_mode'  => 'default',  // 'default' | 'site' | 'custom' | 'none'
+				'report_footer'       => '',
+				'report_footer_mode'  => 'date_page', // 'date_page' | 'page' | 'custom_page' | 'none'
+				'footer_date_format'  => 'dmy',       // 'wp' | 'dmy' | 'mdy' | 'ymd' | 'short_dmy' | 'short_mdy'
+				'footer_page_format'  => 'page_x_of_n', // 'page_x_of_n' | 'page_x' | 'x_of_n' | 'x' | 'none'
+				'site_abbr'           => '',
+				'setup_complete'      => false,
 			],
 			$saved
 		);
@@ -786,12 +803,29 @@ class AdminPage {
 		}
 
 		$current                  = self::get_settings();
-		$current['debug_mode']       = ! empty( $payload['debug_mode'] );
-		$current['beta_preview']     = ! empty( $payload['beta_preview'] );
-		$current['security_testing'] = ! empty( $payload['security_testing'] );
-		$current['report_header'] = sanitize_text_field( $payload['report_header'] ?? '' );
-		$current['report_footer'] = sanitize_text_field( $payload['report_footer'] ?? '' );
-		$current['site_abbr']     = sanitize_text_field( $payload['site_abbr'] ?? '' );
+		$current['debug_mode']          = ! empty( $payload['debug_mode'] );
+		$current['beta_preview']        = ! empty( $payload['beta_preview'] );
+		$current['security_testing']    = ! empty( $payload['security_testing'] );
+		$current['report_header']       = sanitize_text_field( $payload['report_header'] ?? '' );
+		$current['report_footer']       = sanitize_text_field( $payload['report_footer'] ?? '' );
+		$current['site_abbr']           = substr( sanitize_text_field( $payload['site_abbr'] ?? '' ), 0, 20 );
+
+		$valid_header_modes  = [ 'default', 'site', 'custom', 'none' ];
+		$valid_footer_modes  = [ 'date_page', 'page', 'custom_page', 'none' ];
+		$valid_date_formats  = [ 'wp', 'dmy', 'mdy', 'ymd', 'short_dmy', 'short_mdy' ];
+		$valid_page_formats  = [ 'page_x_of_n', 'page_x', 'x_of_n', 'x', 'none' ];
+		$current['report_header_mode'] = in_array( $payload['report_header_mode'] ?? '', $valid_header_modes, true )
+			? $payload['report_header_mode'] : 'default';
+		$current['report_footer_mode'] = in_array( $payload['report_footer_mode'] ?? '', $valid_footer_modes, true )
+			? $payload['report_footer_mode'] : 'date_page';
+		$current['footer_date_format'] = in_array( $payload['footer_date_format'] ?? '', $valid_date_formats, true )
+			? $payload['footer_date_format'] : 'dmy';
+		$current['footer_page_format'] = in_array( $payload['footer_page_format'] ?? '', $valid_page_formats, true )
+			? $payload['footer_page_format'] : 'page_x_of_n';
+
+		if ( ! empty( $payload['setup_complete'] ) ) {
+			$current['setup_complete'] = true;
+		}
 
 		update_option( self::SETTINGS_OPTION, $current, false );
 
@@ -919,6 +953,123 @@ class AdminPage {
 		wp_send_json_success( [ 'ok' => true ] );
 	}
 
+	// ── AJAX: Pre-Import Audit ───────────────────────────────────────────────
+
+	/**
+	 * AJAX: run a pre-import audit against the staged import file.
+	 *
+	 * Reads the file from the session transient set during d5dsh_simple_analyze.
+	 * Returns an audit report in the same shape as AuditEngine::run().
+	 */
+	public function ajax_pre_import_audit(): void {
+		check_ajax_referer( SimpleImporter::NONCE_ACTION, 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
+		}
+
+		$session_key = 'd5dsh_si_' . get_current_user_id();
+		$session     = get_transient( $session_key );
+
+		if ( ! $session ) {
+			wp_send_json_error( [ 'message' => 'Session expired. Please re-upload the file.' ], 400 );
+		}
+
+		try {
+			$tmp_path     = $session['tmp_path']     ?? '';
+			$display_name = $session['display_name'] ?? 'unknown';
+			$format       = $session['format']       ?? 'json';
+
+			if ( $format !== 'json' ) {
+				wp_send_json_error( [ 'message' => 'Pre-import audit is only available for JSON files.' ], 400 );
+			}
+
+			if ( ! $tmp_path || ! file_exists( $tmp_path ) ) {
+				wp_send_json_error( [ 'message' => 'Staged file not found. Please re-upload.' ], 400 );
+			}
+
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+			$raw  = file_get_contents( $tmp_path );
+			$data = $raw ? json_decode( $raw, true ) : null;
+
+			if ( ! is_array( $data ) ) {
+				wp_send_json_error( [ 'message' => 'Could not parse staged file as JSON.' ], 400 );
+			}
+
+			$file_type = $this->detect_json_type_for_audit( $data );
+
+			if ( ! $file_type ) {
+				wp_send_json_error( [ 'message' => 'Could not detect JSON type from file envelope.' ], 400 );
+			}
+
+			$report = PreImportAuditor::run( $data, $file_type, $display_name );
+			wp_send_json_success( $report );
+
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Pre-import audit failed.' );
+		}
+	}
+
+	/**
+	 * AJAX: stream a pre-import audit report as XLSX.
+	 *
+	 * Accepts JSON body: { report: <audit report array> }
+	 */
+	public function ajax_pre_import_audit_xlsx(): never {
+		check_ajax_referer( SimpleImporter::NONCE_ACTION, 'nonce' );
+
+		if ( ! current_user_can( self::CAPABILITY ) ) {
+			wp_send_json_error( [ 'message' => 'Permission denied.' ], 403 );
+		}
+
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_get_contents_file_get_contents
+		$raw     = file_get_contents( 'php://input' );
+		$payload = $raw ? json_decode( $raw, true ) : null;
+
+		if ( ! is_array( $payload ) || ! isset( $payload['report'] ) ) {
+			wp_send_json_error( [ 'message' => 'Invalid report data.' ], 400 );
+		}
+
+		try {
+			AuditExporter::export_audit_xlsx( $payload['report'], NotesManager::get_all() );
+		} catch ( \Throwable $e ) {
+			DebugLogger::send_error( $e, __METHOD__, 'Pre-import audit XLSX export failed.' );
+		}
+	}
+
+	/**
+	 * Detect the JSON type for a pre-import audit (mirrors SimpleImporter::detect_json_type).
+	 *
+	 * @param array $data Decoded JSON.
+	 * @return string|null Type key or null.
+	 */
+	private function detect_json_type_for_audit( array $data ): ?string {
+		if ( isset( $data['$schema'] ) && str_contains( (string) $data['$schema'], 'designtokens.org' ) ) {
+			return 'dtcg';
+		}
+		if ( ! isset( $data['_meta']['type'] ) && ! isset( $data['context'] ) ) {
+			foreach ( [ 'color', 'dimension', 'number', 'fontFamily', 'string' ] as $group ) {
+				if ( isset( $data[ $group ] ) && is_array( $data[ $group ] ) ) {
+					$first = reset( $data[ $group ] );
+					if ( is_array( $first ) && isset( $first['$value'] ) ) { return 'dtcg'; }
+				}
+			}
+		}
+		if ( isset( $data['_meta']['type'] ) ) {
+			$known = [ 'vars', 'presets', 'layouts', 'pages', 'theme_customizer', 'builder_templates' ];
+			return in_array( $data['_meta']['type'], $known, true ) ? $data['_meta']['type'] : null;
+		}
+		if ( isset( $data['context'] ) ) { return 'et_native'; }
+		$map = [
+			'et_divi_global_variables'          => 'vars',
+			'et_divi_builder_global_presets_d5' => 'presets',
+		];
+		foreach ( $map as $key => $type ) {
+			if ( isset( $data[ $key ] ) ) { return $type; }
+		}
+		return null;
+	}
+
 	// ── AJAX: Security Test ───────────────────────────────────────────────────
 
 	/**
@@ -1041,10 +1192,16 @@ class AdminPage {
 
 		$blog_name  = get_bloginfo( 'name' );
 		if ( '' === trim( $blog_name ) ) {
-			$blog_name = parse_url( home_url(), PHP_URL_HOST ) ?? 'site';
+			$blog_name = get_bloginfo( 'blogname' );
+		}
+		if ( '' === trim( $blog_name ) ) {
+			$blog_name = parse_url( home_url(), PHP_URL_HOST ) ?? 'site-name';
+		}
+		if ( '' === trim( $blog_name ) ) {
+			$blog_name = 'site-name';
 		}
 		$blog_slug  = strtolower( preg_replace( '/[^a-z0-9]+/i', '_', $blog_name ) );
-		$blog_slug  = trim( $blog_slug, '_' );
+		$blog_slug  = trim( $blog_slug, '_' ) ?: 'site_name';
 		$site_abbr  = ! empty( $settings['site_abbr'] ) ? $settings['site_abbr'] : $blog_slug;
 		// If a beta-only tab is requested without beta enabled, fall back to manage.
 		if ( ! $beta_on && in_array( $active_tab, [ 'audit', 'styleguide', 'snapshots' ], true ) ) {
@@ -1351,6 +1508,182 @@ class AdminPage {
 				<div class="d5dsh-modal-footer">
 					<span id="d5dsh-impact-delete-warning" class="d5dsh-impact-warning"></span>
 					<button type="button" class="button d5dsh-modal-close" data-modal="d5dsh-impact-modal"><?php esc_html_e( 'Close', 'd5-design-system-helper' ); ?></button>
+				</div>
+			</div>
+		</div>
+
+		<?php /* ── First-run setup wizard modal ──────────────────── */ ?>
+		<div id="d5dsh-wizard-modal" class="d5dsh-modal d5dsh-wizard-modal" style="display:none" role="dialog" aria-modal="true" aria-labelledby="d5dsh-wizard-title">
+			<div class="d5dsh-modal-box d5dsh-wizard-box">
+				<div class="d5dsh-modal-header">
+					<span class="d5dsh-modal-title" id="d5dsh-wizard-title"><?php esc_html_e( 'Welcome to D5 Design System Helper', 'd5-design-system-helper' ); ?></span>
+				</div>
+
+				<?php /* Step progress bar */ ?>
+				<div class="d5dsh-wizard-progress" aria-hidden="true">
+					<div class="d5dsh-wizard-step-dot d5dsh-wizard-dot-active" data-step="1"></div>
+					<div class="d5dsh-wizard-step-dot" data-step="2"></div>
+					<div class="d5dsh-wizard-step-dot" data-step="3"></div>
+					<div class="d5dsh-wizard-step-dot" data-step="4"></div>
+					<div class="d5dsh-wizard-step-dot" data-step="5"></div>
+				</div>
+
+				<div class="d5dsh-modal-body d5dsh-wizard-body">
+
+					<?php /* ── Step 1: Welcome ── */ ?>
+					<div class="d5dsh-wizard-step" data-step="1">
+						<p class="d5dsh-wizard-intro">
+							<?php esc_html_e( 'Let\'s get you set up in a few quick steps. You can change any of these settings later via the ⚙ Settings icon.', 'd5-design-system-helper' ); ?>
+						</p>
+						<label class="d5dsh-setting-row d5dsh-setting-row-block">
+							<span class="d5dsh-setting-label"><?php esc_html_e( 'Site / Organisation Name', 'd5-design-system-helper' ); ?></span>
+							<input type="text" id="d5dsh-wiz-site-name" class="regular-text"
+								value="<?php echo esc_attr( $blog_name ); ?>"
+								placeholder="<?php esc_attr_e( 'e.g. Acme Corporation', 'd5-design-system-helper' ); ?>">
+							<p class="d5dsh-setting-description"><?php esc_html_e( 'Used as the default report header. Pre-filled from your WordPress site name.', 'd5-design-system-helper' ); ?></p>
+						</label>
+						<label class="d5dsh-setting-row d5dsh-setting-row-block">
+							<span class="d5dsh-setting-label"><?php esc_html_e( 'File Name Prefix', 'd5-design-system-helper' ); ?></span>
+							<input type="text" id="d5dsh-wiz-site-abbr" class="regular-text" maxlength="20"
+								placeholder="<?php echo esc_attr( $site_abbr ); ?>">
+							<p class="d5dsh-setting-description"><?php printf(
+								esc_html__( 'Short identifier used in exported file names (letters, numbers, underscores, max 20 characters). Leave blank to use: %s', 'd5-design-system-helper' ),
+								'<code id="d5dsh-wiz-abbr-preview">' . esc_html( $site_abbr ) . '</code>'
+							); ?></p>
+						</label>
+					</div>
+
+					<?php /* ── Step 2: Report Header ── */ ?>
+					<div class="d5dsh-wizard-step" data-step="2" style="display:none">
+						<p class="d5dsh-wizard-intro"><?php esc_html_e( 'Choose what appears at the top of printed reports and exported files.', 'd5-design-system-helper' ); ?></p>
+						<div class="d5dsh-wizard-radio-group">
+							<label class="d5dsh-wizard-radio-option">
+								<input type="radio" name="d5dsh-wiz-header-mode" value="default" checked>
+								<span class="d5dsh-wizard-radio-label"><?php esc_html_e( 'Plugin + site name', 'd5-design-system-helper' ); ?></span>
+								<span class="d5dsh-wizard-radio-example" id="d5dsh-wiz-header-ex-default"><?php echo esc_html( 'D5 Design System Helper — ' . $blog_name ); ?></span>
+							</label>
+							<label class="d5dsh-wizard-radio-option">
+								<input type="radio" name="d5dsh-wiz-header-mode" value="site">
+								<span class="d5dsh-wizard-radio-label"><?php esc_html_e( 'Site name only', 'd5-design-system-helper' ); ?></span>
+								<span class="d5dsh-wizard-radio-example" id="d5dsh-wiz-header-ex-site"><?php echo esc_html( $blog_name ); ?></span>
+							</label>
+							<label class="d5dsh-wizard-radio-option">
+								<input type="radio" name="d5dsh-wiz-header-mode" value="custom">
+								<span class="d5dsh-wizard-radio-label"><?php esc_html_e( 'Custom text', 'd5-design-system-helper' ); ?></span>
+								<input type="text" id="d5dsh-wiz-header-custom" class="regular-text d5dsh-wizard-radio-sub-input"
+									placeholder="<?php esc_attr_e( 'e.g. My Company — Design System', 'd5-design-system-helper' ); ?>" disabled>
+							</label>
+							<label class="d5dsh-wizard-radio-option">
+								<input type="radio" name="d5dsh-wiz-header-mode" value="none">
+								<span class="d5dsh-wizard-radio-label"><?php esc_html_e( 'No header', 'd5-design-system-helper' ); ?></span>
+							</label>
+						</div>
+					</div>
+
+					<?php /* ── Step 3: Report Footer ── */ ?>
+					<div class="d5dsh-wizard-step" data-step="3" style="display:none">
+						<p class="d5dsh-wizard-intro"><?php esc_html_e( 'Choose what appears at the bottom of printed reports.', 'd5-design-system-helper' ); ?></p>
+						<div class="d5dsh-wizard-radio-group">
+							<label class="d5dsh-wizard-radio-option">
+								<input type="radio" name="d5dsh-wiz-footer-mode" value="date_page" checked>
+								<span class="d5dsh-wizard-radio-label"><?php esc_html_e( 'Date + page number', 'd5-design-system-helper' ); ?></span>
+								<span class="d5dsh-wizard-radio-example"><?php esc_html_e( 'e.g.  31 Mar 2026 — Page 1 of 5', 'd5-design-system-helper' ); ?></span>
+							</label>
+							<label class="d5dsh-wizard-radio-option">
+								<input type="radio" name="d5dsh-wiz-footer-mode" value="page">
+								<span class="d5dsh-wizard-radio-label"><?php esc_html_e( 'Page number only', 'd5-design-system-helper' ); ?></span>
+								<span class="d5dsh-wizard-radio-example"><?php esc_html_e( 'e.g.  Page 1 of 5', 'd5-design-system-helper' ); ?></span>
+							</label>
+							<label class="d5dsh-wizard-radio-option">
+								<input type="radio" name="d5dsh-wiz-footer-mode" value="custom_page">
+								<span class="d5dsh-wizard-radio-label"><?php esc_html_e( 'Custom text + page number', 'd5-design-system-helper' ); ?></span>
+								<input type="text" id="d5dsh-wiz-footer-custom" class="regular-text d5dsh-wizard-radio-sub-input"
+									placeholder="<?php esc_attr_e( 'e.g. Confidential — Internal Use Only', 'd5-design-system-helper' ); ?>" disabled>
+							</label>
+							<label class="d5dsh-wizard-radio-option">
+								<input type="radio" name="d5dsh-wiz-footer-mode" value="none">
+								<span class="d5dsh-wizard-radio-label"><?php esc_html_e( 'No footer', 'd5-design-system-helper' ); ?></span>
+							</label>
+						</div>
+						<div id="d5dsh-wiz-footer-formats" class="d5dsh-wizard-sub-section">
+							<label class="d5dsh-setting-row d5dsh-setting-row-block">
+								<span class="d5dsh-setting-label"><?php esc_html_e( 'Date format', 'd5-design-system-helper' ); ?></span>
+								<select id="d5dsh-wiz-date-format" class="d5dsh-wizard-select">
+									<option value="dmy"       selected><?php esc_html_e( 'D MMM YYYY  (31 Mar 2026)', 'd5-design-system-helper' ); ?></option>
+									<option value="mdy"              ><?php esc_html_e( 'MMM D, YYYY  (Mar 31, 2026)', 'd5-design-system-helper' ); ?></option>
+									<option value="ymd"              ><?php esc_html_e( 'YYYY-MM-DD  (2026-03-31)', 'd5-design-system-helper' ); ?></option>
+									<option value="short_dmy"        ><?php esc_html_e( 'DD/MM/YYYY  (31/03/2026)', 'd5-design-system-helper' ); ?></option>
+									<option value="short_mdy"        ><?php esc_html_e( 'MM/DD/YYYY  (03/31/2026)', 'd5-design-system-helper' ); ?></option>
+									<option value="wp"               ><?php esc_html_e( 'WordPress format (from Settings → General)', 'd5-design-system-helper' ); ?></option>
+								</select>
+							</label>
+							<label class="d5dsh-setting-row d5dsh-setting-row-block">
+								<span class="d5dsh-setting-label"><?php esc_html_e( 'Page number format', 'd5-design-system-helper' ); ?></span>
+								<select id="d5dsh-wiz-page-format" class="d5dsh-wizard-select">
+									<option value="page_x_of_n" selected><?php esc_html_e( 'Page x of n  (Page 1 of 5)', 'd5-design-system-helper' ); ?></option>
+									<option value="page_x"             ><?php esc_html_e( 'Page x  (Page 1)', 'd5-design-system-helper' ); ?></option>
+									<option value="x_of_n"             ><?php esc_html_e( 'x of n  (1 of 5)', 'd5-design-system-helper' ); ?></option>
+									<option value="x"                  ><?php esc_html_e( 'x  (1)', 'd5-design-system-helper' ); ?></option>
+									<option value="none"               ><?php esc_html_e( 'No page number', 'd5-design-system-helper' ); ?></option>
+								</select>
+							</label>
+						</div>
+					</div>
+
+					<?php /* ── Step 4: Optional features ── */ ?>
+					<div class="d5dsh-wizard-step" data-step="4" style="display:none">
+						<p class="d5dsh-wizard-intro"><?php esc_html_e( 'These features are off by default. You can enable them any time in Settings → Advanced.', 'd5-design-system-helper' ); ?></p>
+						<label class="d5dsh-setting-row">
+							<input type="checkbox" id="d5dsh-wiz-beta">
+							<span>
+								<strong><?php esc_html_e( 'Beta Preview', 'd5-design-system-helper' ); ?></strong><br>
+								<span class="d5dsh-setting-description"><?php esc_html_e( 'Enables the Snapshots, Analysis, and Style Guide tabs, Bulk Label Change mode, and blank import template downloads.', 'd5-design-system-helper' ); ?></span>
+							</span>
+						</label>
+						<label class="d5dsh-setting-row" style="margin-top:12px">
+							<input type="checkbox" id="d5dsh-wiz-debug">
+							<span>
+								<strong><?php esc_html_e( 'Debug Mode', 'd5-design-system-helper' ); ?></strong><br>
+								<span class="d5dsh-setting-description"><?php esc_html_e( 'Writes detailed error information to a log file. Turn on only when troubleshooting — not recommended for normal use.', 'd5-design-system-helper' ); ?></span>
+							</span>
+						</label>
+					</div>
+
+					<?php /* ── Step 5: Summary ── */ ?>
+					<div class="d5dsh-wizard-step" data-step="5" style="display:none">
+						<p class="d5dsh-wizard-intro"><?php esc_html_e( 'Here\'s a preview of your report layout. Click Save to apply these settings.', 'd5-design-system-helper' ); ?></p>
+						<div class="d5dsh-wizard-preview">
+							<div class="d5dsh-wizard-preview-header" id="d5dsh-wiz-preview-header"></div>
+							<div class="d5dsh-wizard-preview-body">
+								<p class="d5dsh-wizard-preview-doc-title"><?php esc_html_e( 'Variables Report — 31 Mar 2026', 'd5-design-system-helper' ); ?></p>
+								<p class="d5dsh-wizard-preview-placeholder"><?php esc_html_e( '— report content —', 'd5-design-system-helper' ); ?></p>
+							</div>
+							<div class="d5dsh-wizard-preview-footer">
+								<span id="d5dsh-wiz-preview-footer-left"></span>
+								<span id="d5dsh-wiz-preview-footer-right"></span>
+							</div>
+						</div>
+						<div id="d5dsh-wiz-summary-details" class="d5dsh-wizard-summary"></div>
+						<p id="d5dsh-wiz-save-status" class="d5dsh-wizard-save-status" aria-live="polite"></p>
+					</div>
+
+				</div><!-- /.d5dsh-wizard-body -->
+
+				<div class="d5dsh-modal-footer d5dsh-wizard-footer">
+					<button type="button" id="d5dsh-wiz-skip" class="button d5dsh-wiz-skip-btn">
+						<?php esc_html_e( 'Skip setup', 'd5-design-system-helper' ); ?>
+					</button>
+					<div class="d5dsh-wizard-nav">
+						<button type="button" id="d5dsh-wiz-back" class="button" style="display:none">
+							<?php esc_html_e( '← Back', 'd5-design-system-helper' ); ?>
+						</button>
+						<button type="button" id="d5dsh-wiz-next" class="button button-primary">
+							<?php esc_html_e( 'Next →', 'd5-design-system-helper' ); ?>
+						</button>
+						<button type="button" id="d5dsh-wiz-save" class="button button-primary" style="display:none">
+							<?php esc_html_e( 'Save &amp; Get Started', 'd5-design-system-helper' ); ?>
+						</button>
+					</div>
 				</div>
 			</div>
 		</div>
@@ -1691,12 +2024,9 @@ class AdminPage {
 							<?php esc_html_e( 'Import', 'd5-design-system-helper' ); ?>
 						</button>
 						<span id="d5dsh-si-import-spinner" class="spinner" style="float:none;display:none;"></span>
-						<span class="d5dsh-si-audit-wrap d5dsh-beta-feature">
-							<span class="d5dsh-beta-badge"><?php esc_html_e( 'Beta', 'd5-design-system-helper' ); ?></span>
-							<button type="button" id="d5dsh-si-audit-btn" class="button button-secondary" title="<?php esc_attr_e( 'Generate and download an audit report', 'd5-design-system-helper' ); ?>">
-								<?php esc_html_e( 'Audit', 'd5-design-system-helper' ); ?>
-							</button>
-						</span>
+						<button type="button" id="d5dsh-si-audit-btn" class="button button-secondary" title="<?php esc_attr_e( 'Audit the staged import file before importing', 'd5-design-system-helper' ); ?>">
+							<?php esc_html_e( 'Pre-Import Audit', 'd5-design-system-helper' ); ?>
+						</button>
 						<button type="button" id="d5dsh-si-convert-btn" class="button button-secondary">
 							<?php esc_html_e( 'Convert to Excel', 'd5-design-system-helper' ); ?>
 						</button>
@@ -1729,6 +2059,24 @@ class AdminPage {
 				<div id="d5dsh-si-xlsx-diff" style="display:none">
 					<h4 class="d5dsh-si-diff-title"><?php esc_html_e( 'Dry Run Preview', 'd5-design-system-helper' ); ?></h4>
 					<div id="d5dsh-si-xlsx-diff-body"></div>
+				</div>
+
+				<?php /* Pre-Import Audit panel — shown after audit button is clicked */ ?>
+				<div id="d5dsh-pia-panel" class="d5dsh-pia-panel" style="display:none" aria-live="polite">
+					<div class="d5dsh-pia-header">
+						<span class="d5dsh-pia-title"><?php esc_html_e( 'Pre-Import Audit', 'd5-design-system-helper' ); ?></span>
+						<span id="d5dsh-pia-filename" class="d5dsh-pia-filename"></span>
+						<div class="d5dsh-pia-header-actions">
+							<button type="button" id="d5dsh-pia-xlsx-btn" class="button button-small" style="display:none">
+								<?php esc_html_e( 'Download Report (.xlsx)', 'd5-design-system-helper' ); ?>
+							</button>
+							<button type="button" id="d5dsh-pia-close-btn" class="d5dsh-pia-close" aria-label="<?php esc_attr_e( 'Close audit panel', 'd5-design-system-helper' ); ?>">&times;</button>
+						</div>
+					</div>
+					<div id="d5dsh-pia-body" class="d5dsh-pia-body">
+						<span class="spinner is-active" style="float:none"></span>
+						<span><?php esc_html_e( 'Running audit\u2026', 'd5-design-system-helper' ); ?></span>
+					</div>
 				</div>
 			</div>
 
